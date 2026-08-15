@@ -17,6 +17,34 @@ uv sync
 cp .env.example .env      # then paste your OPENROUTER_API_KEY into .env
 ```
 
+### Working with uv
+
+The project is uv-managed: dependencies are declared in `pyproject.toml`, pinned in the
+committed `uv.lock`, and installed into a local `.venv`. Python 3.13 is pinned by
+`.python-version`, and uv downloads it if you do not have it.
+
+- **Never activate the venv.** `uv run <command>` runs inside it and syncs it first, so
+  `uv run ytexplain ...` is always correct even after pulling changes.
+- **Add a dependency** with `uv add <package>` (`uv add --dev <package>` for tooling); it
+  updates `pyproject.toml` and `uv.lock` together. Do not use `pip install` — it writes into
+  the venv without recording anything, so the next `uv sync` silently discards it.
+- **`uv sync`** rebuilds the environment to match the lockfile, and is also the fix if the
+  project folder moves (see [Moving or copying the project](#moving-or-copying-the-project)).
+- **One-off tools without installing them**: `uvx ruff check src tests`.
+- `uv run python -m ytexplain "URL"` is equivalent to the `ytexplain` command if you prefer
+  the module form.
+
+To call it from anywhere instead of from the project directory:
+
+```bash
+uv tool install .        # installs a global `ytexplain`; `uv tool uninstall ytexplain` reverts
+```
+
+Two caveats once installed globally: it reads `.env` from the current directory, so export
+`OPENROUTER_API_KEY` in your shell profile, and `out/` and `.cache/` are resolved relative to
+wherever you run it — set `YTEXPLAIN_OUTPUT_DIR` and `YTEXPLAIN_CACHE_DIR` to absolute paths
+to keep one shared cache.
+
 ## Usage
 
 ```bash
@@ -34,6 +62,33 @@ uv run ytexplain "https://www.youtube.com/watch?v=VIDEO_ID&list=PLAYLIST_ID" --p
 ```
 
 Bare video IDs, `youtu.be`, `/shorts/`, `/live/` and `/embed/` links all work.
+
+### How arguments are handled
+
+```
+ytexplain [options] URL [URL ...]
+```
+
+- **Always quote the URL.** In zsh the `?` and `&` in a YouTube link are shell
+  metacharacters, and an unquoted link fails with `no matches found`.
+- **Several sources in one run.** Any mix of videos and playlists:
+  `ytexplain "URL1" "URL2" "PLAYLIST_URL"`. Each is processed in turn and the summary at
+  the end lists every PDF written.
+- **One failure does not stop the run.** An unreachable video, or one with captions
+  disabled, is reported under `not generated:` at the end while everything else still
+  produces output. This matters for long playlists.
+- **`-o/--output` applies to a single result** — one video, or a playlist with `--combined`.
+  For multiple outputs use `-d/--out-dir`; playlists get a subfolder named after the
+  playlist, with files numbered in playlist order.
+- `uv run ytexplain --help` prints the full list.
+
+Exit codes, for scripting:
+
+| Code | Meaning |
+| --- | --- |
+| `0` | at least one PDF was written |
+| `1` | nothing could be generated |
+| `2` | configuration error, such as a missing API key |
 
 ### Options
 
