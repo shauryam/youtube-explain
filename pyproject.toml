@@ -1,0 +1,29 @@
+[project]
+name = "ytexplain"
+version = "0.1.0"
+description = "Turn YouTube videos and playlists into comprehensive PDF explainers"
+readme = "README.md"
+authors = [
+    { name = "Shaurya Mittal", email = "15144889+shauryam@users.noreply.github.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "httpx>=0.28.1",
+    "python-dotenv>=1.2.2",
+    "reportlab>=5.0.0",
+    "rich>=15.0.0",
+    "youtube-transcript-api>=1.2.4",
+    "yt-dlp>=2026.7.4",
+]
+
+[project.scripts]
+ytexplain = "ytexplain.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.11.14,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
