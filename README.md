@@ -52,6 +52,13 @@ Bare video IDs, `youtu.be`, `/shorts/`, `/live/` and `/embed/` links all work.
 | `--markdown` | also write a `.md` beside each PDF |
 | `--no-cache` | ignore cached transcripts and model responses |
 
+## Documentation
+
+- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — how the tool is built and how to change
+  it: the two-pass design and why, module responsibilities, "how do I add X" recipes, and the
+  constraints that are easy to trip over.
+- **[AGENTS.md](AGENTS.md)** — conventions for anyone (or any agent) editing the repo.
+
 ## How it works
 
 1. **Resolve** the URL. Playlists are enumerated with `yt-dlp`; titles and channel come
