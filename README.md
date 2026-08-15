@@ -52,6 +52,69 @@ Bare video IDs, `youtu.be`, `/shorts/`, `/live/` and `/embed/` links all work.
 | `--markdown` | also write a `.md` beside each PDF |
 | `--no-cache` | ignore cached transcripts and model responses |
 
+### Environment variables
+
+Set these in `.env` (see `.env.example`). Command line flags win over them.
+
+| Variable | Purpose |
+| --- | --- |
+| `OPENROUTER_API_KEY` | required; from https://openrouter.ai/keys |
+| `YTEXPLAIN_MODEL` | default model, same values as `--model` |
+| `YTEXPLAIN_OUTPUT_DIR` | default output directory, same as `--out-dir` |
+| `YTEXPLAIN_CACHE_DIR` | where the cache lives (default `.cache`) |
+
+### Reading the run summary
+
+Every run ends with a line like:
+
+```
+9 model calls (1 from cache), 24,265 in / 9,480 out tokens, $0.1433
+```
+
+`from cache` counts calls served from disk that cost nothing, and the dollar figure is what
+OpenRouter actually billed for this run, not an estimate.
+
+### Caching and cost control
+
+Transcripts and model responses are cached under `.cache/` (`transcripts/` and
+`completions/`), keyed by a hash of the inputs that determine the result. A few hundred
+kilobytes per handful of videos, and it is gitignored.
+
+This means **re-running the same video is free** — the second run reports
+`0 model calls (10 from cache), $0.0000` and just re-renders. What that does and does not
+cover:
+
+| Change | Costs anything? |
+| --- | --- |
+| `--include-transcript`, `--markdown`, `-o`, `--out-dir`, `--combined` | free — rendering only |
+| `--concurrency` | free — scheduling only |
+| `--model`, `--fast`, editing prompts | new calls; the model and prompt text are part of the key |
+| `--lang` | refetches the transcript, then rewrites |
+
+So iterating on PDF appearance is free, while changing what the model is asked is not.
+
+To force fresh generation, either pass `--no-cache` for one run or delete what you want to
+rebuild:
+
+```bash
+rm -rf .cache                # everything
+rm -rf .cache/completions    # keep transcripts, regenerate the writing
+```
+
+Clear it when a video's captions have been corrected, or when you have changed prompts and
+want to compare output rather than reuse the old text.
+
+### Moving or copying the project
+
+uv stores absolute paths inside `.venv`, so the environment breaks if the folder moves.
+Recreate it:
+
+```bash
+rm -rf .venv && uv sync
+```
+
+Nothing else is path-dependent: `.env`, `.cache/` and `out/` all move with the folder.
+
 ## Documentation
 
 - **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — how the tool is built and how to change

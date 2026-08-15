@@ -189,6 +189,15 @@ only what it affects.
 Truncated responses are deliberately not cached, so a token-limit failure is not made
 permanent.
 
+Nothing about rendering enters the key, which is the point: change styles, page layout or
+the Markdown parser and every previously processed video re-renders for free. Only changes
+to what the model is *asked* — model slug, prompt text, temperature, token limit — cause new
+calls. Entries are plain JSON under `.cache/<namespace>/<hash>.json`, so you can read one to
+see exactly what the model returned, and delete a namespace to rebuild just that stage.
+
+There is no expiry or size limit. If a video's captions are corrected upstream, the stale
+transcript stays until `.cache/transcripts` is cleared.
+
 ## How do I…
 
 **Add a CLI flag** — add it in `cli.py::parse_args`; if any stage below the CLI needs it,
