@@ -13,6 +13,8 @@ non-English) videos are written out in English.
 Requires [uv](https://docs.astral.sh/uv/) and an [OpenRouter](https://openrouter.ai/keys) key.
 
 ```bash
+git clone https://github.com/shauryam/youtube-explain
+cd youtube-explain
 uv sync
 cp .env.example .env      # then paste your OPENROUTER_API_KEY into .env
 ```
@@ -226,3 +228,7 @@ sections, not linearly with length, since each section call only sees its own sl
 uv run pytest                          # unit tests, no network or API key needed
 uv run python scripts/render_sample.py # check PDF layout without spending anything
 ```
+
+## License
+
+MIT — see [LICENSE](LICENSE).

@@ -6,6 +6,8 @@ readme = "README.md"
 authors = [
     { name = "Shaurya Mittal", email = "15144889+shauryam@users.noreply.github.com" }
 ]
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.13"
 dependencies = [
     "httpx>=0.28.1",
@@ -15,6 +17,10 @@ dependencies = [
     "youtube-transcript-api>=1.2.4",
     "yt-dlp>=2026.7.4",
 ]
+
+[project.urls]
+Homepage = "https://github.com/shauryam/youtube-explain"
+Repository = "https://github.com/shauryam/youtube-explain"
 
 [project.scripts]
 ytexplain = "ytexplain.cli:main"

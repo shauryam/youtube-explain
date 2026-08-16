@@ -60,7 +60,7 @@ class OpenRouterClient:
             headers={
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
-                "HTTP-Referer": "https://github.com/ytexplain",
+                "HTTP-Referer": "https://github.com/shauryam/youtube-explain",
                 "X-Title": "ytexplain",
             },
         )

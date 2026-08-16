@@ -1,6 +1,7 @@
 # Working in this repository
 
-Follow the shared rules in `../CodingAgents.md` as well as everything below.
+If a `CodingAgents.md` sits in the parent directory, follow its shared rules too. This file
+stands on its own without it.
 
 ytexplain turns YouTube videos and playlists into PDF explainers that replace watching.
 Read `docs/ARCHITECTURE.md` before changing anything — it explains the two-pass generation
