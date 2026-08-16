@@ -1,4 +1,5 @@
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -6,6 +7,7 @@ from ytexplain.explain import _rules, _seconds, _terms
 from ytexplain.llm import JSON_FENCE, _loads
 from ytexplain.models import Segment, Transcript
 from ytexplain.pipeline import slugify
+from ytexplain.transcript import TranscriptError, _choose_track, _choose_ytdlp_track
 
 
 def transcript(text: str, language: str = "en", generated: bool = False) -> Transcript:
@@ -69,3 +71,45 @@ def test_loads_tolerates_literal_newlines_in_strings():
 )
 def test_slugify(title, expected):
     assert slugify(title) == expected
+
+
+def track(code: str, generated: bool = False):
+    return SimpleNamespace(language_code=code, is_generated=generated)
+
+
+@pytest.mark.parametrize(
+    ("available", "expected"),
+    [
+        ([track("en-GB"), track("hi")], ("en-GB", False)),
+        ([track("en", generated=True), track("en")], ("en", False)),
+        ([track("de"), track("en", generated=True)], ("en", True)),
+        ([track("en-GB"), track("en")], ("en", False)),
+        ([track("de", generated=True), track("fr")], ("fr", False)),
+    ],
+)
+def test_choose_track_follows_the_preference_ladder(available, expected):
+    chosen = _choose_track(available, ("en",))
+    assert (chosen.language_code, chosen.is_generated) == expected
+
+
+def test_choose_track_without_captions_raises():
+    with pytest.raises(TranscriptError):
+        _choose_track([], ("en",))
+
+
+@pytest.mark.parametrize(
+    ("manual", "auto", "expected"),
+    [
+        ({"en-IN": []}, {"en": []}, ("en-IN", False)),
+        ({"de": []}, {"en": []}, ("en", True)),
+        ({}, {"hi": [], "en": []}, ("en", True)),
+    ],
+)
+def test_choose_ytdlp_track_ranks_pools_together(manual, auto, expected):
+    code, _tracks, generated = _choose_ytdlp_track(manual, auto, ("en",))
+    assert (code, generated) == expected
+
+
+def test_choose_ytdlp_track_without_captions_raises():
+    with pytest.raises(TranscriptError):
+        _choose_ytdlp_track({}, {}, ("en",))

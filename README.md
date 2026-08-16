@@ -78,6 +78,7 @@ ytexplain [options] URL [URL ...]
   disabled, is reported under `not generated:` at the end while everything else still
   produces output. This matters for long playlists.
 - **`-o/--output` applies to a single result** — one video, or a playlist with `--combined`.
+  It is ignored when a run has several sources, since one path cannot name several files.
   For multiple outputs use `-d/--out-dir`; playlists get a subfolder named after the
   playlist, with files numbered in playlist order.
 - `uv run ytexplain --help` prints the full list.

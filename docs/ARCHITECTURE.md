@@ -106,9 +106,17 @@ for playlist enumeration and the caption fallback, where nothing else works.
 
 ### Transcript acquisition (`transcript.py`)
 
-Track preference, in `_choose_track`: manually written captions in a preferred language,
-then auto-generated in a preferred language, then any manual track, then anything at all.
-Human captions are meaningfully more accurate on technical terms.
+Track preference is a single sort key, `_preference`, that both backends minimise:
+manually written captions in a requested language, then auto-generated in a requested
+language, then any manual track, then anything at all. Human captions are meaningfully more
+accurate on technical terms, which is why they outrank auto-generated ones within each
+group.
+
+A requested `en` also matches an `en-GB` track, one rank below a plain `en` one. Without
+that, a channel that only publishes a regional variant fell through to the "anything at
+all" case and the requested language was effectively ignored. This is why `PREFERRED` is
+just `("en",)` rather than a list of variants — the ranking generalises to any language, so
+`--lang hi` picks up `hi-IN` for free.
 
 Two backends run in order, and `get_transcript` only fails if both do:
 
@@ -182,9 +190,9 @@ exists exactly for the "Contents" title itself).
 ### Caching (`cache.py`)
 
 Keys are SHA-256 over the inputs that determine the output: video ID and language list for
-transcripts, and model, system prompt, user prompt, temperature and token limit for
-completions. Because prompts are part of the key, editing a prompt naturally invalidates
-only what it affects.
+transcripts, and model, system prompt, user prompt, temperature, token limit and whether a
+JSON response was requested for completions. Because prompts are part of the key, editing a
+prompt naturally invalidates only what it affects.
 
 Truncated responses are deliberately not cached, so a token-limit failure is not made
 permanent.

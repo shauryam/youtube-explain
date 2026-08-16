@@ -66,6 +66,9 @@ def main(argv: list[str] | None = None) -> int:
         max_videos=args.max_videos,
     )
     cache = Cache(settings.cache_dir, enabled=settings.use_cache)
+    # An exact path can only name one file, so it is ignored once a run has
+    # several sources; otherwise each URL would overwrite the previous one.
+    sole_output = args.output if len(args.urls) == 1 else None
     results: list[tuple[Path, Document]] = []
     failures: list[tuple[str, str]] = []
 
@@ -105,14 +108,14 @@ def main(argv: list[str] | None = None) -> int:
                     destination = output_path(
                         document,
                         settings,
-                        explicit=args.output if len(refs) == 1 and len(args.urls) == 1 else None,
+                        explicit=sole_output if len(refs) == 1 else None,
                         folder=folder,
                         index=position if len(refs) > 1 else None,
                     )
                     results.append((_write(document, destination, args), document))
 
             if args.combined and len(refs) > 1 and documents:
-                destination = args.output or (
+                destination = sole_output or (
                     settings.output_dir / f"{slugify(playlist_title or 'playlist')}.pdf"
                 )
                 path = build_pdf(

@@ -13,11 +13,34 @@ from dataclasses import asdict
 from .cache import Cache
 from .models import Segment, Transcript
 
-PREFERRED = ("en", "en-US", "en-GB")
+PREFERRED = ("en",)
 
 
 class TranscriptError(RuntimeError):
     pass
+
+
+def _preference(code: str, generated: bool, languages: tuple[str, ...]) -> tuple[bool, bool, int]:
+    """Sort key ranking one caption track against the requested languages.
+
+    Lowest wins, in this order: a manually written track in a requested language,
+    an auto-generated one in a requested language, any manual track, anything at
+    all. Human captions are meaningfully more accurate on technical terms, which
+    is why they outrank auto-generated ones within each group.
+
+    A request for "en" also matches "en-GB", one rank below a plain "en" track, so
+    a channel that only publishes regional variants still counts as requested.
+    """
+    code = code.lower()
+    unmatched = 2 * len(languages)
+    rank = unmatched
+    for index, wanted in enumerate(languages):
+        wanted = wanted.lower()
+        if code == wanted:
+            rank = min(rank, 2 * index)
+        elif code.split("-")[0] == wanted.split("-")[0]:
+            rank = min(rank, 2 * index + 1)
+    return rank == unmatched, generated, rank
 
 
 def get_transcript(
@@ -86,23 +109,13 @@ def _via_api(video_id: str, languages: tuple[str, ...]) -> Transcript:
 
 
 def _choose_track(available, languages: tuple[str, ...]):
-    """Prefer human captions over auto-generated, and English over anything else."""
-    from youtube_transcript_api import NoTranscriptFound
-
-    for finder in (
-        available.find_manually_created_transcript,
-        available.find_generated_transcript,
-    ):
-        try:
-            return finder(list(languages))
-        except NoTranscriptFound:
-            continue
-
     tracks = list(available)
     if not tracks:
         raise TranscriptError("video has no caption tracks")
-    manual = [t for t in tracks if not t.is_generated]
-    return (manual or tracks)[0]
+    return min(
+        tracks,
+        key=lambda track: _preference(track.language_code, track.is_generated, languages),
+    )
 
 
 def _via_ytdlp(video_id: str, languages: tuple[str, ...]) -> Transcript:
@@ -128,15 +141,14 @@ def _via_ytdlp(video_id: str, languages: tuple[str, ...]) -> Transcript:
 
 
 def _choose_ytdlp_track(manual: dict, auto: dict, languages: tuple[str, ...]):
-    for pool, generated in ((manual, False), (auto, True)):
-        for language in languages:
-            for code in (language, language.split("-")[0]):
-                if code in pool:
-                    return code, pool[code], generated
-        if pool:
-            code = next(iter(pool))
-            return code, pool[code], generated
-    raise TranscriptError("video has no caption tracks")
+    candidates = [
+        (code, tracks, generated)
+        for pool, generated in ((manual, False), (auto, True))
+        for code, tracks in pool.items()
+    ]
+    if not candidates:
+        raise TranscriptError("video has no caption tracks")
+    return min(candidates, key=lambda entry: _preference(entry[0], entry[2], languages))
 
 
 def _json3_url(tracks: list[dict]) -> str | None:
