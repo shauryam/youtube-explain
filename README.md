@@ -232,3 +232,6 @@ uv run python scripts/render_sample.py # check PDF layout without spending anyth
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+Bugs and questions are best raised as a GitHub issue; otherwise
+mittalshaurya92@gmail.com.

@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Turn YouTube videos and playlists into comprehensive PDF explainers"
 readme = "README.md"
 authors = [
-    { name = "Shaurya Mittal", email = "15144889+shauryam@users.noreply.github.com" }
+    { name = "Shaurya Mittal", email = "mittalshaurya92@gmail.com" }
 ]
 license = "MIT"
 license-files = ["LICENSE"]
