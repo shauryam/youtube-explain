@@ -5,8 +5,17 @@ import pytest
 
 from ytexplain.explain import _rules, _seconds, _terms
 from ytexplain.llm import JSON_FENCE, _loads
-from ytexplain.models import Segment, Transcript
+from ytexplain.models import (
+    Document,
+    Explainer,
+    Section,
+    Segment,
+    Transcript,
+    VideoMeta,
+    format_reading_time,
+)
 from ytexplain.pipeline import slugify
+from ytexplain.render.text import to_markdown
 from ytexplain.transcript import TranscriptError, _choose_track, _choose_ytdlp_track
 
 
@@ -113,3 +122,32 @@ def test_choose_ytdlp_track_ranks_pools_together(manual, auto, expected):
 def test_choose_ytdlp_track_without_captions_raises():
     with pytest.raises(TranscriptError):
         _choose_ytdlp_track({}, {}, ("en",))
+
+
+@pytest.mark.parametrize(
+    ("words", "expected"),
+    [(0, "1 min"), (150, "1 min"), (2000, "10 min"), (12_000, "1 h"), (12_200, "1 h 1 min")],
+)
+def test_format_reading_time(words, expected):
+    assert format_reading_time(words) == expected
+
+
+def test_explainer_words_counts_everything_but_the_title():
+    explainer = Explainer(
+        title="ignored words here",
+        abstract="two words",
+        prerequisites=["one"],
+        sections=[Section(heading="head", body="body text here")],
+        key_terms=[("term", "its definition")],
+        takeaways=["final point"],
+    )
+    assert explainer.words == 12
+
+
+def test_markdown_header_reports_reading_time():
+    document = Document(
+        meta=VideoMeta(video_id="x", url="https://example.com", title="T"),
+        explainer=Explainer(title="T", sections=[Section(heading="h", body="word " * 400)]),
+        transcript=transcript("cue"),
+    )
+    assert "**Reading time:** 2 min" in to_markdown(document)

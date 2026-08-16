@@ -195,7 +195,8 @@ Nothing else is path-dependent: `.env`, `.cache/` and `out/` all move with the f
    so it summarises. Per-section calls each have room to actually explain, and the outline
    keeps them from overlapping or repeating each other.
 5. **Render** to PDF: cover page, clickable table of contents, PDF bookmarks, styled
-   code blocks, tables and callouts.
+   code blocks, tables and callouts. The cover and each chapter state an estimated
+   reading time, so you can see up front what an hour of video became.
 
 Transcripts and model responses are cached in `.cache/`, keyed by content, so re-running
 a video — to change PDF options, for instance — costs nothing.

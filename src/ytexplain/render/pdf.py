@@ -27,7 +27,7 @@ from reportlab.platypus import (
 )
 from reportlab.platypus.tableofcontents import TableOfContents
 
-from ..models import Document, Transcript, format_timestamp
+from ..models import Document, Transcript, format_reading_time, format_timestamp
 from .markdown import MarkdownRenderer, escape, inline
 
 PAGE = A4
@@ -306,11 +306,13 @@ def _cover(documents: list[Document], styles: dict, title: str, multi: bool) -> 
     total_seconds = sum(
         (d.meta.duration or d.transcript.duration or 0) for d in documents
     )
-    subtitle = (
+    reading_time = format_reading_time(sum(d.explainer.words for d in documents))
+    scope = (
         f"{len(documents)} videos - {format_timestamp(total_seconds)} of video, explained"
         if multi
         else "Written explainer from a YouTube video"
     )
+    subtitle = f"{scope} \u00b7 {reading_time} read"
     channels = sorted({d.meta.channel for d in documents if d.meta.channel})
     facts = [
         ("Channel", ", ".join(channels) if channels else None),
@@ -399,7 +401,15 @@ def _chapter(
 
 def _chapter_meta(document: Document) -> str:
     meta, transcript = document.meta, document.transcript
-    parts = [part for part in (meta.channel, format_timestamp(meta.duration or transcript.duration)) if part]
+    parts = [
+        part
+        for part in (
+            meta.channel,
+            format_timestamp(meta.duration or transcript.duration),
+            f"{format_reading_time(document.explainer.words)} read",
+        )
+        if part
+    ]
     if document.explainer.translated:
         parts.append(f"translated from {document.explainer.source_language}")
     parts.append(f'<link href="{meta.url}" color="#1A5FB4"><u>watch on YouTube</u></link>')

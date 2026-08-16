@@ -1,5 +1,7 @@
 # Working in this repository
 
+Follow the shared rules in `../CodingAgents.md` as well as everything below.
+
 ytexplain turns YouTube videos and playlists into PDF explainers that replace watching.
 Read `docs/ARCHITECTURE.md` before changing anything — it explains the two-pass generation
 design, what each module owns, and several non-obvious constraints that are easy to
@@ -14,6 +16,9 @@ reintroduce as bugs.
   `complete_json` only.
 - **Rendering is split**: `render/markdown.py` parses, `render/pdf.py` styles. Keep visual
   choices out of the parser.
+- **Anything both renderers need lives in `models.py`.** The reading-time estimate is there
+  for that reason; deriving it separately in `render/pdf.py` and `render/text.py` would let
+  the two disagree.
 - Comments explain constraints and reasoning, not what the next line does.
 
 ## Before finishing a change

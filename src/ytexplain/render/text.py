@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ..models import Document, format_timestamp
+from ..models import Document, format_reading_time, format_timestamp
 
 
 def to_markdown(document: Document) -> str:
@@ -15,6 +15,7 @@ def to_markdown(document: Document) -> str:
     duration = meta.duration or document.transcript.duration
     if duration:
         facts.append(f"**Length:** {format_timestamp(duration)}")
+    facts.append(f"**Reading time:** {format_reading_time(explainer.words)}")
     if explainer.translated:
         facts.append(f"**Translated from:** {explainer.source_language}")
     lines += [" · ".join(facts), ""]

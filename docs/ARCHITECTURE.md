@@ -181,6 +181,14 @@ dictionary supplied by `build_styles`, so appearance and parsing stay separate.
 the model wrote inside a section competes with real section headings in the table of
 contents.
 
+Reading time comes from `Explainer.words`, formatted by `models.format_reading_time`. It
+lives in `models.py` rather than in either renderer because the PDF cover, every chapter's
+meta line and the Markdown header all have to report the same number. `WORDS_PER_MINUTE` is
+200 rather than the ~250 usually quoted for prose, because an explainer carries commands and
+code a reader stops to parse. A combined playlist sums the word counts of its chapters, so
+its cover states the reading time for the whole book while each chapter still states its
+own.
+
 `NotesDocTemplate.afterFlowable` is what produces both the table of contents and the PDF
 bookmark tree: it fires for every `Paragraph` whose style name is in `TOC_LEVELS`
 (`H1` → 0, `H2` → 1, `H3` → 2). To add something to the contents, give its paragraph one of

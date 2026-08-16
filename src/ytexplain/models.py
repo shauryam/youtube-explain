@@ -8,6 +8,10 @@ from dataclasses import dataclass, field
 DEVANAGARI = re.compile(r"[\u0900-\u097F]")
 NON_LATIN = re.compile(r"[^\x00-\x7F\u00A0-\u024F\u2000-\u206F]")
 
+# Deliberately below the ~250 wpm usually quoted for prose: an explainer is
+# technical writing with commands and code the reader stops to parse.
+WORDS_PER_MINUTE = 200
+
 
 def format_timestamp(seconds: float) -> str:
     total = int(seconds)
@@ -16,6 +20,20 @@ def format_timestamp(seconds: float) -> str:
     if hours:
         return f"{hours}:{minutes:02d}:{secs:02d}"
     return f"{minutes}:{secs:02d}"
+
+
+def format_reading_time(words: int) -> str:
+    """Reading time for a word count, as "9 min" or "1 h 20 min".
+
+    Rounds up to a minimum of one minute, since "0 min" reads as an error, and
+    switches to hours for combined playlists where a bare minute count stops
+    being meaningful.
+    """
+    minutes = max(1, round(words / WORDS_PER_MINUTE))
+    if minutes < 60:
+        return f"{minutes} min"
+    hours, remainder = divmod(minutes, 60)
+    return f"{hours} h {remainder} min" if remainder else f"{hours} h"
 
 
 @dataclass(slots=True)
@@ -129,6 +147,18 @@ class Explainer:
     source_language: str = ""
     translated: bool = False
     model: str = ""
+
+    @property
+    def words(self) -> int:
+        """Everything a reader has to get through, for the reading-time estimate.
+
+        The title is left out: it is a label on the page rather than something
+        the reader works through.
+        """
+        texts = [self.abstract, *self.prerequisites, *self.takeaways]
+        texts += [f"{section.heading} {section.body}" for section in self.sections]
+        texts += [f"{term} {definition}" for term, definition in self.key_terms]
+        return sum(len(text.split()) for text in texts)
 
 
 @dataclass(slots=True)
