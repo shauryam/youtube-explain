@@ -3,8 +3,9 @@ from types import SimpleNamespace
 
 import pytest
 
+from ytexplain.cli import matching_models
 from ytexplain.explain import _rules, _seconds, _terms
-from ytexplain.llm import JSON_FENCE, _loads
+from ytexplain.llm import JSON_FENCE, _loads, _models_from_payload
 from ytexplain.models import (
     Document,
     Explainer,
@@ -142,6 +143,56 @@ def test_explainer_words_counts_everything_but_the_title():
         takeaways=["final point"],
     )
     assert explainer.words == 12
+
+
+CATALOGUE = {
+    "data": [
+        {
+            "id": "z-ai/glm-5.2",
+            "name": "GLM 5.2",
+            "context_length": 1_048_576,
+            "pricing": {"prompt": "0.00000031", "completion": "0.00000097"},
+        },
+        {
+            "id": "anthropic/claude-sonnet-5",
+            "name": "Claude Sonnet 5",
+            "context_length": "200000",
+        },
+        {"name": "an entry with no id at all"},
+    ]
+}
+
+
+def test_models_from_payload_converts_prices_to_per_million():
+    glm = _models_from_payload(CATALOGUE)[0]
+    assert glm.id == "z-ai/glm-5.2"
+    assert (round(glm.prompt_usd, 2), round(glm.completion_usd, 2)) == (0.31, 0.97)
+    assert glm.context == 1_048_576
+
+
+def test_models_from_payload_tolerates_missing_fields():
+    models = _models_from_payload(CATALOGUE)
+    # Catalogue order is preserved; the entry without an id is dropped.
+    assert [model.id for model in models] == ["z-ai/glm-5.2", "anthropic/claude-sonnet-5"]
+    sonnet = models[1]
+    assert sonnet.context == 200_000  # arrived as a string
+    assert sonnet.prompt_usd == 0.0  # no pricing block at all
+    assert _models_from_payload({}) == []
+
+
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        ("glm", ["z-ai/glm-5.2"]),
+        ("GLM", ["z-ai/glm-5.2"]),
+        ("sonnet", ["anthropic/claude-sonnet-5"]),
+        ("  z-ai  ", ["z-ai/glm-5.2"]),
+        ("", ["anthropic/claude-sonnet-5", "z-ai/glm-5.2"]),
+        ("nothing here", []),
+    ],
+)
+def test_matching_models_searches_slug_and_name(query, expected):
+    assert [m.id for m in matching_models(_models_from_payload(CATALOGUE), query)] == expected
 
 
 def test_markdown_header_reports_reading_time():

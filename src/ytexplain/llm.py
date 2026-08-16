@@ -13,14 +13,68 @@ from typing import Self
 import httpx
 
 from .cache import Cache
-from .config import OPENROUTER_ENDPOINT
+from .config import MODELS_ENDPOINT, OPENROUTER_ENDPOINT
 
 RETRY_STATUS = {408, 409, 429, 500, 502, 503, 504}
 JSON_FENCE = re.compile(r"^\s*```(?:json)?\s*|\s*```\s*$")
+PER_MILLION = 1_000_000
 
 
 class LLMError(RuntimeError):
     pass
+
+
+@dataclass(slots=True)
+class Model:
+    """One entry from OpenRouter's catalogue, with prices per million tokens."""
+
+    id: str
+    name: str
+    context: int
+    prompt_usd: float
+    completion_usd: float
+
+
+def _per_million(value) -> float:
+    # Prices arrive as per-token decimal strings, and some models omit them.
+    try:
+        return float(value) * PER_MILLION
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _models_from_payload(payload: dict) -> list[Model]:
+    models = []
+    for raw in payload.get("data") or []:
+        slug = str(raw.get("id") or "").strip()
+        if not slug:
+            continue
+        pricing = raw.get("pricing") or {}
+        try:
+            context = int(raw.get("context_length") or 0)
+        except (TypeError, ValueError):
+            context = 0
+        models.append(
+            Model(
+                id=slug,
+                name=str(raw.get("name") or slug),
+                context=context,
+                prompt_usd=_per_million(pricing.get("prompt")),
+                completion_usd=_per_million(pricing.get("completion")),
+            )
+        )
+    return models
+
+
+def list_models(*, timeout: float = 30.0) -> list[Model]:
+    """The public model catalogue. Needs no API key, so it works before setup."""
+    try:
+        response = httpx.get(MODELS_ENDPOINT, timeout=timeout)
+        response.raise_for_status()
+        payload = response.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        raise LLMError(f"Could not read OpenRouter's model list: {exc}") from exc
+    return _models_from_payload(payload)
 
 
 def _loads(text: str) -> dict:

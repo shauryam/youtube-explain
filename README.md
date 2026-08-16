@@ -104,11 +104,28 @@ Exit codes, for scripting:
 | `--combined` | one PDF for the playlist instead of one per video |
 | `--fast` | two model calls instead of one-per-section: cheaper, less depth |
 | `--concurrency N` | sections written in parallel (default 4) |
-| `--model SLUG` | any OpenRouter model (default `anthropic/claude-sonnet-5`) |
+| `--model SLUG` | any OpenRouter model (default `z-ai/glm-5.2`) |
+| `--pick-model [SEARCH]` | choose the model interactively from OpenRouter's catalogue |
 | `--lang en,hi` | preferred caption languages |
 | `--include-transcript` | append the raw transcript to the PDF |
 | `--markdown` | also write a `.md` beside each PDF |
 | `--no-cache` | ignore cached transcripts and model responses |
+
+### Choosing a model
+
+The default is `z-ai/glm-5.2`. Any OpenRouter slug works, and nothing in the code has to
+change to switch:
+
+```bash
+uv run ytexplain "URL" --model anthropic/claude-sonnet-5   # a slug you already know
+uv run ytexplain "URL" --pick-model                        # ask, then choose from a list
+uv run ytexplain "URL" --pick-model glm                    # same, pre-filtered
+```
+
+`--pick-model` reads the live catalogue from OpenRouter, which needs no API key, and shows
+each match with its context window and price per million tokens. Type a number to use that
+model for the run. It needs a terminal, so scripts and CI should pass `--model` instead. To
+make a choice permanent, set `YTEXPLAIN_MODEL` in `.env`.
 
 ### Environment variables
 
@@ -218,9 +235,15 @@ unaffected.
 
 ## Cost and time
 
-Roughly, with `claude-sonnet-5` on a 10-minute video: about 70 seconds and $0.15 for the
-full per-section mode, or $0.08 in `--fast` mode. Longer videos scale with the number of
-sections, not linearly with length, since each section call only sees its own slice.
+Cost is set by the model, so read these as examples rather than a price list. A 12-minute
+tutorial on the default `z-ai/glm-5.2` came to 7 calls, 84 seconds and $0.0194 billed, for a
+10-page PDF. `anthropic/claude-sonnet-5` measured about $0.15 on a 10-minute video, or $0.08
+in `--fast` mode. Longer videos scale with the number of sections, not linearly with length,
+since each section call only sees its own slice.
+
+Switching models starts the cache from scratch, because the model slug is part of every
+cache key. The first run on a new model pays full price even for videos you have already
+processed.
 
 ## Development
 

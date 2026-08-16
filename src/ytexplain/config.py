@@ -8,8 +8,9 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-DEFAULT_MODEL = "anthropic/claude-sonnet-5"
+DEFAULT_MODEL = "z-ai/glm-5.2"
 OPENROUTER_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
+MODELS_ENDPOINT = "https://openrouter.ai/api/v1/models"
 
 
 class ConfigError(RuntimeError):

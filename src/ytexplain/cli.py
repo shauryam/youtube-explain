@@ -7,10 +7,12 @@ import sys
 from pathlib import Path
 
 from rich.console import Console
+from rich.prompt import IntPrompt, Prompt
 from rich.table import Table
 
 from .cache import Cache
 from .config import DEFAULT_MODEL, ConfigError, Settings
+from .llm import LLMError, Model, list_models
 from .models import Document
 from .pipeline import (
     Options,
@@ -25,6 +27,8 @@ from .render.text import to_markdown
 
 console = Console()
 
+MODEL_LIST_LIMIT = 25
+
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -38,6 +42,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--max-videos", type=int, metavar="N", help="stop after N videos of a playlist")
     parser.add_argument("--combined", action="store_true", help="one PDF for the whole playlist instead of one per video")
     parser.add_argument("--model", help=f"OpenRouter model (default: {DEFAULT_MODEL})")
+    parser.add_argument(
+        "--pick-model",
+        nargs="?",
+        const="",
+        metavar="SEARCH",
+        help="choose the model interactively from OpenRouter's catalogue",
+    )
     parser.add_argument("--fast", action="store_true", help="cheaper two-call mode; less depth per section")
     parser.add_argument("--concurrency", type=int, default=4, metavar="N", help="sections written in parallel (default: 4)")
     parser.add_argument("--lang", default="en", help="preferred caption languages, comma separated (default: en)")
@@ -47,6 +58,63 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def matching_models(models: list[Model], query: str) -> list[Model]:
+    """Models whose slug or name contains `query`, case-insensitively."""
+    needle = query.strip().lower()
+    found = [model for model in models if needle in model.id.lower() or needle in model.name.lower()]
+    return sorted(found, key=lambda model: model.id)
+
+
+def _show_models(models: list[Model], current: str) -> None:
+    table = Table(show_header=True, header_style="bold", box=None, pad_edge=False)
+    table.add_column("#", justify="right")
+    table.add_column("Model")
+    table.add_column("Context", justify="right")
+    table.add_column("$/M in", justify="right")
+    table.add_column("$/M out", justify="right")
+    for position, model in enumerate(models[:MODEL_LIST_LIMIT], start=1):
+        table.add_row(
+            str(position),
+            f"{model.id} [dim](current)[/]" if model.id == current else model.id,
+            f"{model.context:,}",
+            f"{model.prompt_usd:.2f}",
+            f"{model.completion_usd:.2f}",
+        )
+    console.print(table)
+    if len(models) > MODEL_LIST_LIMIT:
+        console.print(
+            f"[dim]{len(models) - MODEL_LIST_LIMIT} more match; narrow the search to reach them.[/]"
+        )
+
+
+def choose_model(seed: str, current: str) -> str:
+    """Ask which OpenRouter model to use, and return the chosen slug."""
+    if not sys.stdin.isatty():
+        raise ConfigError("--pick-model needs an interactive terminal; pass --model SLUG instead")
+
+    models = list_models()
+    console.print(f"[dim]{len(models)} models on OpenRouter. Currently using {current}.[/]")
+    # Listing 400-odd models alphabetically helps nobody, so ask before showing any.
+    query = seed if seed.strip() else Prompt.ask("Search models (blank for all)", default="")
+    while True:
+        matches = matching_models(models, query)
+        if not matches:
+            console.print(f"[yellow]Nothing matches[/] {query!r}")
+        else:
+            _show_models(matches, current)
+            choice = IntPrompt.ask("Model number, or 0 to search again", default=1)
+            if 1 <= choice <= min(len(matches), MODEL_LIST_LIMIT):
+                chosen = matches[choice - 1].id
+                console.print(
+                    f"[dim]Using {chosen} for this run."
+                    f" Put YTEXPLAIN_MODEL={chosen} in .env to make it the default.[/]"
+                )
+                return chosen
+            if choice != 0:
+                console.print("[yellow]That number is not on the list.[/]")
+        query = Prompt.ask("Search models (blank for all)", default="")
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     try:
@@ -54,7 +122,9 @@ def main(argv: list[str] | None = None) -> int:
             model=args.model, output_dir=args.out_dir, use_cache=not args.no_cache
         )
         settings.require_api_key()
-    except ConfigError as exc:
+        if args.pick_model is not None:
+            settings.model = choose_model(args.pick_model, settings.model)
+    except (ConfigError, LLMError) as exc:
         console.print(f"[bold red]Configuration error:[/] {exc}")
         return 2
 

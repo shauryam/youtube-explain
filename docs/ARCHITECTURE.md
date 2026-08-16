@@ -80,7 +80,7 @@ renderer, which is why `--combined` was nearly free to add.
 | `transcript.py` | caption retrieval with fallback and track selection | two independent backends |
 | `explain.py` | the two-pass generation, transcript slicing, JSON coercion | the quality-critical module |
 | `prompts.py` | all prompt text, nothing else | change wording here, never inline in `explain.py` |
-| `llm.py` | OpenRouter HTTP, retries, JSON repair, usage accounting | provider-specific code is confined here |
+| `llm.py` | OpenRouter HTTP, retries, JSON repair, usage accounting, model catalogue | provider-specific code is confined here |
 | `cache.py` | content-addressed disk cache | namespaces: `transcripts`, `completions` |
 | `models.py` | the dataclasses above | shared vocabulary, no logic beyond text helpers |
 | `render/markdown.py` | Markdown subset to ReportLab flowables | reused for every section and list |
@@ -170,6 +170,24 @@ thread-safe and usage counters are lock-guarded.
 unusable; `build_explainer` then falls back to per-section writing rather than emitting an
 empty document.
 
+### Model selection (`config.py`, `llm.py::list_models`, `cli.py::choose_model`)
+
+`DEFAULT_MODEL` is `z-ai/glm-5.2`. Nothing else in the code names a model: `Settings.load`
+resolves `--model`, then `YTEXPLAIN_MODEL`, then the default, and everything downstream reads
+`settings.model`.
+
+`--pick-model` fetches `MODELS_ENDPOINT`, which is public — no API key — so the catalogue is
+readable before the key check would matter. Only the fetch lives in `llm.py`; searching
+(`matching_models`) and printing live in `cli.py`, which keeps the network out of the part
+tests exercise and honours "`cli.py` is the only module that prints".
+
+Picking is opt-in rather than the default behaviour for a missing `--model`, because a prompt
+would hang any non-interactive run; `choose_model` refuses outright when stdin is not a TTY.
+The choice applies to one run and is never written to `.env` — the tool does not edit the
+user's configuration — so it prints the `YTEXPLAIN_MODEL` line to set instead. Changing model
+changes every completion cache key, which is correct: two models' prose should never mix
+inside one document.
+
 ### Rendering (`render/`)
 
 `MarkdownRenderer.render` is a line-based parser over the Markdown subset the model emits:
@@ -234,9 +252,10 @@ JSON shape in `OUTLINE_SYSTEM`, add the field to `Explainer` in `models.py`, par
 **Add an output format** (HTML, EPUB, Anki) — write a module beside `render/text.py` that
 consumes a `Document`. Nothing upstream needs to know.
 
-**Use a different model or provider** — any OpenRouter slug works via `--model`. For a
-different provider entirely, reimplement `OpenRouterClient.complete` and `complete_json`;
-they are the only interface `explain.py` uses.
+**Use a different model or provider** — any OpenRouter slug works via `--model`, or
+`--pick-model` to choose one from the live catalogue. For a different provider entirely,
+reimplement `OpenRouterClient.complete` and `complete_json`; they are the only interface
+`explain.py` uses.
 
 **Process a source other than YouTube** — produce a `VideoMeta` and a `Transcript`, then
 call `build_explainer`. The generation and rendering stages have no YouTube knowledge.
@@ -287,8 +306,12 @@ a rendering change costs nothing.
 
 ## Cost and performance
 
-Measured with `claude-sonnet-5` on a 10-minute tutorial: roughly 70 seconds and $0.15 for
-per-section mode (one outline call plus one per section), or 2 calls and about $0.08 with
-`--fast`. Cost scales with section count rather than video length, since each expansion call
-sees only its own slice. Wall time is dominated by the slowest section, not their sum,
-because of the thread pool.
+Two measurements, both per-section mode (one outline call plus one per section):
+`z-ai/glm-5.2`, the default, on a 12:22 tutorial — 7 calls, 84 seconds, $0.0194, 6 sections
+over 10 pages. `claude-sonnet-5` on a 10-minute tutorial — roughly 70 seconds and $0.15, or
+2 calls and about $0.08 with `--fast`. Only the dollar figures are model-specific; the call
+pattern is the same whatever the model.
+
+Cost scales with section count rather than video length, since each expansion call sees only
+its own slice. Wall time is dominated by the slowest section, not their sum, because of the
+thread pool.
