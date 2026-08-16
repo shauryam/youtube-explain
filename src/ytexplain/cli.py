@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 from rich.console import Console
-from rich.prompt import IntPrompt, Prompt
+from rich.prompt import Confirm, IntPrompt, Prompt
 from rich.table import Table
 
 from .cache import Cache
@@ -104,15 +104,29 @@ def choose_model(seed: str, current: str) -> str:
             _show_models(matches, current)
             choice = IntPrompt.ask("Model number, or 0 to search again", default=1)
             if 1 <= choice <= min(len(matches), MODEL_LIST_LIMIT):
-                chosen = matches[choice - 1].id
-                console.print(
-                    f"[dim]Using {chosen} for this run."
-                    f" Put YTEXPLAIN_MODEL={chosen} in .env to make it the default.[/]"
-                )
-                return chosen
+                return matches[choice - 1].id
             if choice != 0:
                 console.print("[yellow]That number is not on the list.[/]")
         query = Prompt.ask("Search models (blank for all)", default="")
+
+
+def first_run_model(settings: Settings) -> None:
+    """Nobody has chosen a model yet, so confirm the default or pick another.
+
+    Only reached on a terminal. Saving is offered because otherwise the same question
+    would greet every run, and `.env` is where the answer belongs.
+    """
+    console.print(
+        f"[bold]No model chosen yet.[/] Falling back to the default, {settings.model}."
+    )
+    seed = Prompt.ask("Press Enter to keep it, or type a search to pick another", default="")
+    if seed.strip():
+        settings.model = choose_model(seed, settings.model)
+    if Confirm.ask(f"Remember {settings.model} in .env?", default=True):
+        path = settings.remember_model()
+        console.print(f"[dim]Wrote YTEXPLAIN_MODEL={settings.model} to {path}[/]")
+    else:
+        console.print(f"[dim]Using {settings.model} for this run only.[/]")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -124,6 +138,12 @@ def main(argv: list[str] | None = None) -> int:
         settings.require_api_key()
         if args.pick_model is not None:
             settings.model = choose_model(args.pick_model, settings.model)
+            console.print(
+                f"[dim]Using {settings.model} for this run."
+                f" Put YTEXPLAIN_MODEL={settings.model} in .env to make it the default.[/]"
+            )
+        elif not settings.model_configured and sys.stdin.isatty():
+            first_run_model(settings)
     except (ConfigError, LLMError) as exc:
         console.print(f"[bold red]Configuration error:[/] {exc}")
         return 2

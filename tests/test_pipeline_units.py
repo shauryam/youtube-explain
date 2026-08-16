@@ -3,7 +3,9 @@ from types import SimpleNamespace
 
 import pytest
 
+from ytexplain import config
 from ytexplain.cli import matching_models
+from ytexplain.config import DEFAULT_MODEL, Settings
 from ytexplain.explain import _rules, _seconds, _terms
 from ytexplain.llm import JSON_FENCE, _loads, _models_from_payload
 from ytexplain.models import (
@@ -193,6 +195,60 @@ def test_models_from_payload_tolerates_missing_fields():
 )
 def test_matching_models_searches_slug_and_name(query, expected):
     assert [m.id for m in matching_models(_models_from_payload(CATALOGUE), query)] == expected
+
+
+@pytest.fixture
+def no_dotenv(monkeypatch):
+    """Keep Settings.load away from the developer's own .env, which sets a model."""
+    monkeypatch.setattr(config, "load_dotenv", lambda *args, **kwargs: None)
+    monkeypatch.delenv("YTEXPLAIN_MODEL", raising=False)
+
+
+def test_settings_marks_the_fallback_model_as_unconfigured(no_dotenv):
+    settings = Settings.load()
+    assert (settings.model, settings.model_configured) == (DEFAULT_MODEL, False)
+
+
+def test_settings_marks_env_and_flag_models_as_configured(no_dotenv, monkeypatch):
+    monkeypatch.setenv("YTEXPLAIN_MODEL", "vendor/from-env")
+    from_env = Settings.load()
+    assert (from_env.model, from_env.model_configured) == ("vendor/from-env", True)
+
+    from_flag = Settings.load(model="vendor/from-flag")
+    assert (from_flag.model, from_flag.model_configured) == ("vendor/from-flag", True)
+
+
+def test_remember_model_replaces_the_line_and_spares_the_key(no_dotenv, tmp_path):
+    env = tmp_path / ".env"
+    env.write_text("OPENROUTER_API_KEY=sk-or-v1-secret\nYTEXPLAIN_OUTPUT_DIR=out\n")
+
+    Settings.load(model="vendor/first").remember_model(env)
+    Settings.load(model="vendor/second").remember_model(env)
+
+    written = env.read_text()
+    assert [line for line in written.splitlines() if line.startswith("YTEXPLAIN_MODEL")] == [
+        "YTEXPLAIN_MODEL=vendor/second"
+    ]
+    assert "OPENROUTER_API_KEY=sk-or-v1-secret" in written
+    assert "YTEXPLAIN_OUTPUT_DIR=out" in written
+
+
+def test_dotenv_path_follows_the_working_directory(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert config.dotenv_path().resolve() == (tmp_path / ".env").resolve()
+
+    (tmp_path / ".env").write_text("OPENROUTER_API_KEY=x\n")
+    nested = tmp_path / "videos"
+    nested.mkdir()
+    monkeypatch.chdir(nested)
+    # Found by walking up, so running from a subdirectory still sees the project's .env.
+    assert config.dotenv_path().resolve() == (tmp_path / ".env").resolve()
+
+
+def test_remember_model_creates_env_when_there_is_none(no_dotenv, tmp_path):
+    env = tmp_path / ".env"
+    Settings.load(model="vendor/only").remember_model(env)
+    assert env.read_text().strip() == "YTEXPLAIN_MODEL=vendor/only"
 
 
 def test_markdown_header_reports_reading_time():

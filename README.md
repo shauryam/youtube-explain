@@ -42,10 +42,10 @@ To call it from anywhere instead of from the project directory:
 uv tool install .        # installs a global `ytexplain`; `uv tool uninstall ytexplain` reverts
 ```
 
-Two caveats once installed globally: it reads `.env` from the current directory, so export
-`OPENROUTER_API_KEY` in your shell profile, and `out/` and `.cache/` are resolved relative to
-wherever you run it — set `YTEXPLAIN_OUTPUT_DIR` and `YTEXPLAIN_CACHE_DIR` to absolute paths
-to keep one shared cache.
+Two caveats once installed globally: it reads the nearest `.env` from the directory you run
+in and upward, so either keep one there or export `OPENROUTER_API_KEY` in your shell profile,
+and `out/` and `.cache/` are resolved relative to wherever you run it — set
+`YTEXPLAIN_OUTPUT_DIR` and `YTEXPLAIN_CACHE_DIR` to absolute paths to keep one shared cache.
 
 ## Usage
 
@@ -113,28 +113,46 @@ Exit codes, for scripting:
 
 ### Choosing a model
 
-The default is `z-ai/glm-5.2`. Any OpenRouter slug works, and nothing in the code has to
-change to switch:
+The first time you run ytexplain without a model configured, it asks:
+
+```
+No model chosen yet. Falling back to the default, z-ai/glm-5.2.
+Press Enter to keep it, or type a search to pick another:
+Remember z-ai/glm-5.2 in .env? [y/n] (y):
+```
+
+Press Enter twice and you are done — the answer goes into `YTEXPLAIN_MODEL` in your `.env`
+and the question does not come back. Type a search term instead (`claude`, `gemini`, `4.7`)
+and you get the matching models to choose from. Decline the save and the choice applies to
+that run only.
+
+The question is skipped whenever a model is already configured, and whenever the output is
+not a terminal, so scripts, cron jobs and CI never block on it — they use the default, or
+whatever `--model` says.
+
+Afterwards, any OpenRouter slug works without touching the code:
 
 ```bash
 uv run ytexplain "URL" --model anthropic/claude-sonnet-5   # a slug you already know
-uv run ytexplain "URL" --pick-model                        # ask, then choose from a list
+uv run ytexplain "URL" --pick-model                        # search and choose, this run only
 uv run ytexplain "URL" --pick-model glm                    # same, pre-filtered
 ```
 
 `--pick-model` reads the live catalogue from OpenRouter, which needs no API key, and shows
-each match with its context window and price per million tokens. Type a number to use that
-model for the run. It needs a terminal, so scripts and CI should pass `--model` instead. To
-make a choice permanent, set `YTEXPLAIN_MODEL` in `.env`.
+each match with its context window and price per million tokens. Unlike the first-run
+question it never writes to `.env`; to change your default later, edit `YTEXPLAIN_MODEL` or
+delete the line to be asked again.
 
 ### Environment variables
 
-Set these in `.env` (see `.env.example`). Command line flags win over them.
+Set these in `.env` (see `.env.example`). The nearest `.env` from the directory you run in,
+searching upward, is the one used and the one the first-run question writes to. Command line
+flags win over them.
 
 | Variable | Purpose |
 | --- | --- |
 | `OPENROUTER_API_KEY` | required; from https://openrouter.ai/keys |
-| `YTEXPLAIN_MODEL` | default model, same values as `--model` |
+| `YTEXPLAIN_MODEL` | default model, same values as `--model`; leave it out to be asked once |
 | `YTEXPLAIN_OUTPUT_DIR` | default output directory, same as `--out-dir` |
 | `YTEXPLAIN_CACHE_DIR` | where the cache lives (default `.cache`) |
 

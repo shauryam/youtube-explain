@@ -181,12 +181,30 @@ readable before the key check would matter. Only the fetch lives in `llm.py`; se
 (`matching_models`) and printing live in `cli.py`, which keeps the network out of the part
 tests exercise and honours "`cli.py` is the only module that prints".
 
-Picking is opt-in rather than the default behaviour for a missing `--model`, because a prompt
-would hang any non-interactive run; `choose_model` refuses outright when stdin is not a TTY.
-The choice applies to one run and is never written to `.env` — the tool does not edit the
-user's configuration — so it prints the `YTEXPLAIN_MODEL` line to set instead. Changing model
-changes every completion cache key, which is correct: two models' prose should never mix
-inside one document.
+There are two ways in, and the difference matters. `--pick-model` is an explicit per-run
+override: it never writes anything, because someone who asked for a different model for one
+run has not asked to change their default. `first_run_model` fires only when nobody has
+chosen a model at all — `Settings.model_configured` is `False`, meaning neither the flag nor
+`YTEXPLAIN_MODEL` supplied one — and it offers to save the answer, because a question that
+cannot be answered permanently becomes a question asked on every run.
+
+Both paths require a terminal. `choose_model` refuses when stdin is not a TTY, and the
+first-run question is gated on `sys.stdin.isatty()` before it is even reached, so cron jobs,
+CI and `xargs` pipelines silently take the default instead of blocking forever on stdin. This
+is why prompting is not simply the fallback behaviour for a missing `--model`.
+
+`.env.example` deliberately leaves `YTEXPLAIN_MODEL` commented out. If the shipped example
+pinned a model, everyone who copied it would be "already configured" and the first-run
+question would never fire for the people it exists for.
+
+`config.dotenv_path` exists because bare `load_dotenv()` searches upward from `config.py`,
+which in an installed copy is inside a virtualenv — it would miss the `.env` in the directory
+the user is actually working in, and `remember_model` would then write a file that never gets
+read. Resolving the path once, from the working directory upward, keeps reads and writes on
+the same file.
+
+Changing model changes every completion cache key, which is correct: two models' prose should
+never mix inside one document.
 
 ### Rendering (`render/`)
 
