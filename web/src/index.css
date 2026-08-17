@@ -251,6 +251,20 @@ p.failure.card {
   color: var(--accent);
 }
 
+.preview .actions {
+  display: flex;
+  gap: 0.9rem;
+  white-space: nowrap;
+}
+
+.preview .hint {
+  margin-top: 0.5rem;
+}
+
+.failure p {
+  margin: 0 0 0.35rem;
+}
+
 .history ul {
   list-style: none;
   margin: 0;

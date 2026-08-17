@@ -5,16 +5,28 @@ interface Props {
   problem: string | null
   selected: string | null
   onOpen: (entry: HistoryEntry) => void
+  onRetry: () => void
 }
 
-export function HistoryPanel({ entries, problem, selected, onOpen }: Props) {
+export function HistoryPanel({ entries, problem, selected, onOpen, onRetry }: Props) {
   return (
     <section className="card history">
       <header>
         <h2>Earlier explainers</h2>
+        <button type="button" className="link" onClick={onRetry}>
+          Refresh
+        </button>
       </header>
 
-      {problem && <p className="failure">Could not read the history: {problem}</p>}
+      {/* A failure here stays inside this panel: the rest of the page still works. */}
+      {problem && (
+        <p className="failure">
+          Could not read the history: {problem}{' '}
+          <button type="button" className="link" onClick={onRetry}>
+            Try again
+          </button>
+        </p>
+      )}
       {!problem && entries.length === 0 && (
         <p className="hint">Nothing here yet. Anything you generate, here or from the terminal, shows up in this list.</p>
       )}

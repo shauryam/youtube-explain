@@ -1,24 +1,29 @@
 import { useState } from 'react'
 
 import type { JobSubmission, ModelInfo, ServerSettings } from '../types'
+import { formatWait } from '../useCountdown'
 
 interface Props {
   settings: ServerSettings
   models: ModelInfo[]
   busy: boolean
+  cooldown: number
   onSubmit: (submission: JobSubmission) => void
 }
 
-export function SubmitForm({ settings, models, busy, onSubmit }: Props) {
+export function SubmitForm({ settings, models, busy, cooldown, onSubmit }: Props) {
   const [url, setUrl] = useState('')
   const [model, setModel] = useState('')
   const [fast, setFast] = useState(false)
   const [markdown, setMarkdown] = useState(false)
   const [includeTranscript, setIncludeTranscript] = useState(false)
 
+  // One worker runs the jobs, so a second submission would only sit in a queue.
+  const blocked = busy || cooldown > 0
+
   const submit = (event: React.FormEvent) => {
     event.preventDefault()
-    if (!url.trim() || busy) return
+    if (!url.trim() || blocked) return
     onSubmit({
       url: url.trim(),
       model: model || undefined,
@@ -73,11 +78,17 @@ export function SubmitForm({ settings, models, busy, onSubmit }: Props) {
         </label>
       </div>
 
-      <button type="submit" disabled={busy || !url.trim()}>
-        {busy ? 'Working…' : 'Explain this video'}
+      <button type="submit" disabled={blocked || !url.trim()}>
+        {cooldown > 0
+          ? `Hourly limit reached — ${formatWait(cooldown)}`
+          : busy
+            ? 'Working…'
+            : 'Explain this video'}
       </button>
       <p className="hint">
         One video at a time. Playlists are not supported yet, and a typical run takes a minute or two.
+        This server allows {settings.max_jobs_per_hour}{' '}
+        {settings.max_jobs_per_hour === 1 ? 'run' : 'runs'} an hour.
       </p>
     </form>
   )

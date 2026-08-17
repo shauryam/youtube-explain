@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 
-import { ApiError, api, token } from './api'
+import { ApiError, api, describeError, token } from './api'
 import { HistoryPanel } from './components/HistoryPanel'
 import { JobPanel } from './components/JobPanel'
 import { PasswordGate } from './components/PasswordGate'
 import { PdfPreview } from './components/PdfPreview'
 import { SubmitForm } from './components/SubmitForm'
 import type { HistoryEntry, JobSubmission, ModelInfo, ServerSettings } from './types'
+import { formatWait, useCountdown } from './useCountdown'
 import { useJob } from './useJob'
 
 interface Preview {
@@ -23,10 +24,24 @@ export default function App() {
   const [history, setHistory] = useState<HistoryEntry[]>([])
   const [historyProblem, setHistoryProblem] = useState<string | null>(null)
   const [jobId, setJobId] = useState<string | null>(null)
+  const [lastSubmission, setLastSubmission] = useState<JobSubmission | null>(null)
   const [submitProblem, setSubmitProblem] = useState<string | null>(null)
   const [preview, setPreview] = useState<Preview | null>(null)
+  const [cooldown, startCooldown] = useCountdown()
 
-  const { job, problem: pollProblem } = useJob(jobId)
+  // A rejected password is only worth reporting once, at the gate.
+  const forgetPassword = useCallback((message: string) => {
+    token.clear()
+    setAuthorised(false)
+    setGateProblem(message)
+  }, [])
+
+  const onUnauthorised = useCallback(
+    () => forgetPassword('The password stopped working. Enter it again.'),
+    [forgetPassword],
+  )
+
+  const { job, trouble, quiet, retry: resumePolling } = useJob(jobId, onUnauthorised)
   const busy = job?.status === 'queued' || job?.status === 'running'
 
   useEffect(() => {
@@ -36,7 +51,7 @@ export default function App() {
         setSettings(loaded)
         setAuthorised(!loaded.requires_password || Boolean(token.read()))
       })
-      .catch((error: unknown) => setSubmitProblem(describe(error)))
+      .catch((error: unknown) => setSubmitProblem(describeError(error)))
   }, [])
 
   const loadHistory = useCallback(() => {
@@ -46,16 +61,22 @@ export default function App() {
         setHistory(entries)
         setHistoryProblem(null)
       })
-      .catch((error: unknown) => setHistoryProblem(describe(error)))
-  }, [])
+      .catch((error: unknown) => {
+        if (error instanceof ApiError && error.status === 401) {
+          forgetPassword('The password stopped working. Enter it again.')
+          return
+        }
+        setHistoryProblem(describeError(error))
+      })
+  }, [forgetPassword])
 
   useEffect(() => {
     if (!authorised) return
     loadHistory()
+    // A missing catalogue only costs the dropdown, so it fails quietly.
     api.models().then(setModels).catch(() => setModels([]))
   }, [authorised, loadHistory])
 
-  // A finished run becomes the preview, and joins the history list.
   useEffect(() => {
     if (job?.status === 'done' && job.pdf_url) {
       setPreview({ path: job.pdf_url, title: job.record?.title ?? 'Explainer', file: null })
@@ -63,36 +84,52 @@ export default function App() {
     }
   }, [job?.status, job?.pdf_url, job?.record?.title, loadHistory])
 
-  const submit = (submission: JobSubmission) => {
-    setSubmitProblem(null)
-    setPreview(null)
+  const submit = useCallback(
+    (submission: JobSubmission) => {
+      setSubmitProblem(null)
+      setPreview(null)
+      setLastSubmission(submission)
+      api
+        .submit(submission)
+        .then((created) => setJobId(created.id))
+        .catch((error: unknown) => {
+          if (error instanceof ApiError && error.status === 401) {
+            forgetPassword('The password stopped working. Enter it again.')
+            return
+          }
+          if (error instanceof ApiError && error.status === 429) {
+            startCooldown(error.retryAfter ?? 60)
+          }
+          setSubmitProblem(describeError(error))
+        })
+    },
+    [forgetPassword, startCooldown],
+  )
+
+  const openGate = (password: string) => {
+    token.write(password)
+    setGateProblem(null)
+    // Any authorised endpoint will do; history is the cheapest.
     api
-      .submit(submission)
-      .then((created) => setJobId(created.id))
-      .catch((error: unknown) => setSubmitProblem(describe(error)))
+      .history()
+      .then((entries) => {
+        setHistory(entries)
+        setAuthorised(true)
+      })
+      .catch((error: unknown) => {
+        token.clear()
+        setGateProblem(
+          error instanceof ApiError && error.status === 401
+            ? 'That password was not accepted.'
+            : describeError(error),
+        )
+      })
   }
 
   if (settings?.requires_password && !authorised) {
     return (
       <Shell>
-        <PasswordGate
-          problem={gateProblem}
-          onSubmit={(password) => {
-            token.write(password)
-            setGateProblem(null)
-            api
-              .history()
-              .then(() => setAuthorised(true))
-              .catch((error: unknown) => {
-                token.clear()
-                setGateProblem(
-                  error instanceof ApiError && error.status === 401
-                    ? 'That password was not accepted.'
-                    : describe(error),
-                )
-              })
-          }}
-        />
+        <PasswordGate problem={gateProblem} onSubmit={openGate} />
       </Shell>
     )
   }
@@ -100,23 +137,42 @@ export default function App() {
   return (
     <Shell>
       {settings && (
-        <SubmitForm settings={settings} models={models} busy={busy} onSubmit={submit} />
+        <SubmitForm
+          settings={settings}
+          models={models}
+          busy={busy}
+          cooldown={cooldown}
+          onSubmit={submit}
+        />
       )}
       {settings && !settings.has_api_key && (
         <p className="failure card">
           The server has no OPENROUTER_API_KEY set, so runs will fail until it does.
         </p>
       )}
-      {submitProblem && <p className="failure card">{submitProblem}</p>}
-      {pollProblem && <p className="failure card">{pollProblem}</p>}
+      {submitProblem && (
+        <p className="failure card">
+          {submitProblem}
+          {cooldown > 0 && (
+            <span className="countdown"> Try again in {formatWait(cooldown)}.</span>
+          )}
+        </p>
+      )}
 
-      {job && <JobPanel job={job} />}
+      <JobPanel
+        job={job}
+        trouble={trouble}
+        quiet={quiet}
+        onRetryJob={() => lastSubmission && submit(lastSubmission)}
+        onResumePolling={resumePolling}
+      />
       {preview && <PdfPreview path={preview.path} title={preview.title} />}
 
       <HistoryPanel
         entries={history}
         problem={historyProblem}
         selected={preview?.file ?? null}
+        onRetry={loadHistory}
         onOpen={(entry) =>
           setPreview({
             path: `/api/files/${entry.file.split('/').map(encodeURIComponent).join('/')}`,
@@ -139,11 +195,4 @@ function Shell({ children }: { children: React.ReactNode }) {
       {children}
     </div>
   )
-}
-
-function describe(error: unknown): string {
-  if (error instanceof ApiError) return error.message
-  // fetch rejects with a TypeError when the request never reached the server.
-  if (error instanceof TypeError) return 'Could not reach the server.'
-  return error instanceof Error ? error.message : String(error)
 }

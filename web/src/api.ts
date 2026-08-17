@@ -32,6 +32,14 @@ export const token = {
   clear: () => sessionStorage.removeItem(TOKEN_KEY),
 }
 
+/** A sentence to show for anything thrown by this module or by fetch itself. */
+export function describeError(error: unknown): string {
+  if (error instanceof ApiError) return error.message
+  // fetch rejects with a TypeError when the request never reached the server.
+  if (error instanceof TypeError) return 'Could not reach the server.'
+  return error instanceof Error ? error.message : String(error)
+}
+
 function withAuth(headers: HeadersInit = {}): HeadersInit {
   const current = token.read()
   return current ? { ...headers, 'X-Access-Token': current } : headers

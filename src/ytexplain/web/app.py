@@ -142,9 +142,10 @@ def submit_job(body: JobBody, _: None = Depends(require_access)) -> dict:
 
     retry_after = limit.take()
     if retry_after is not None:
+        allowed = HourlyLimit.maximum()
         raise HTTPException(
             status.HTTP_429_TOO_MANY_REQUESTS,
-            f"Hourly limit of {HourlyLimit.maximum()} runs reached.",
+            f"Hourly limit of {allowed} run{'' if allowed == 1 else 's'} reached.",
             headers={"Retry-After": str(int(retry_after) + 1)},
         )
 

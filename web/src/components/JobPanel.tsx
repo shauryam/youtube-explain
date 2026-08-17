@@ -1,37 +1,80 @@
+import type { PollTrouble } from '../useJob'
 import type { Job } from '../types'
 
 interface Props {
-  job: Job
+  job: Job | null
+  trouble: PollTrouble
+  quiet: boolean
+  onRetryJob: () => void
+  onResumePolling: () => void
 }
 
-export function JobPanel({ job }: Props) {
-  const running = job.status === 'queued' || job.status === 'running'
+export function JobPanel({ job, trouble, quiet, onRetryJob, onResumePolling }: Props) {
+  if (!job && !trouble) return null
+  const running = job?.status === 'queued' || job?.status === 'running'
 
   return (
     <section className="card job">
       <header>
         <h2>
-          <span className={`dot ${job.status}`} aria-hidden="true" />
-          {label(job)}
+          <span className={`dot ${trouble ? 'failed' : (job?.status ?? 'queued')}`} aria-hidden="true" />
+          {heading(job, trouble)}
         </h2>
-        {job.model && <span className="tag">{job.model}</span>}
+        {job?.model && <span className="tag">{job.model}</span>}
       </header>
 
-      <ol className="progress">
-        {job.progress.map((line, index) => (
-          <li key={`${index}-${line}`} className={running && index === job.progress.length - 1 ? 'current' : ''}>
-            {line}
-          </li>
-        ))}
-      </ol>
+      {job && job.progress.length > 0 && (
+        <ol className="progress">
+          {job.progress.map((line, index) => (
+            <li
+              key={`${index}-${line}`}
+              className={running && index === job.progress.length - 1 ? 'current' : ''}
+            >
+              {line}
+            </li>
+          ))}
+        </ol>
+      )}
 
-      {job.error && (
+      {quiet && !trouble && (
+        <p className="hint">
+          Still working. A long section can take a couple of minutes on its own.
+        </p>
+      )}
+
+      {trouble?.kind === 'offline' && (
         <div className="failure">
-          <strong>{job.error.message}</strong>
+          <p>Lost contact with the server: {trouble.message}</p>
+          <button type="button" className="link" onClick={onResumePolling}>
+            Try again
+          </button>
         </div>
       )}
 
-      {job.record && (
+      {trouble?.kind === 'lost' && (
+        <div className="failure">
+          <p>
+            This run disappeared, which usually means the server restarted. The work it had
+            already paid for is cached, so starting it again is cheap.
+          </p>
+          <button type="button" className="link" onClick={onRetryJob}>
+            Run it again
+          </button>
+        </div>
+      )}
+
+      {job?.error && (
+        <div className="failure">
+          <p>{job.error.message}</p>
+          {job.error.retryable && (
+            <button type="button" className="link" onClick={onRetryJob}>
+              Try again
+            </button>
+          )}
+        </div>
+      )}
+
+      {job?.record && (
         <dl className="facts">
           <div>
             <dt>Reading time</dt>
@@ -62,7 +105,10 @@ export function JobPanel({ job }: Props) {
   )
 }
 
-function label(job: Job): string {
+function heading(job: Job | null, trouble: PollTrouble): string {
+  if (trouble?.kind === 'lost') return 'That run is gone'
+  if (trouble?.kind === 'offline') return 'Not sure how that run is doing'
+  if (!job) return 'Waiting'
   if (job.status === 'queued') return 'Queued behind another run'
   if (job.status === 'running') return job.progress.at(-1) ?? 'Starting'
   if (job.status === 'failed') return 'That run failed'
