@@ -24,6 +24,19 @@ class LLMError(RuntimeError):
     pass
 
 
+class FatalLLMError(LLMError):
+    """A failure no amount of retrying will fix: bad key, bad slug, no credit.
+
+    Retrying these wastes up to half a minute of backoff before failing with the
+    same message, which is invisible in a terminal but reads as a hang behind a
+    progress bar.
+    """
+
+    def __init__(self, message: str, status: int) -> None:
+        super().__init__(message)
+        self.status = status
+
+
 @dataclass(slots=True)
 class Model:
     """One entry from OpenRouter's catalogue, with prices per million tokens."""
@@ -193,8 +206,13 @@ class OpenRouterClient:
                 if response.status_code in RETRY_STATUS:
                     raise LLMError(f"HTTP {response.status_code}: {response.text[:300]}")
                 if response.status_code >= 400:
-                    raise LLMError(f"HTTP {response.status_code}: {response.text[:500]}")
+                    raise FatalLLMError(
+                        f"HTTP {response.status_code}: {response.text[:500]}",
+                        response.status_code,
+                    )
                 return response.json()
+            except FatalLLMError:
+                raise
             except (httpx.HTTPError, LLMError) as exc:
                 last_error = exc
                 if attempt == self.max_retries:
