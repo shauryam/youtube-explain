@@ -8,6 +8,8 @@ plans a document, and then writes each section in full: mechanisms explained, te
 defined, commands and code preserved, pitfalls called out. Hindi (and other
 non-English) videos are written out in English.
 
+Works from the terminal or from a browser — see [Web UI](#web-ui).
+
 ## Setup
 
 Requires [uv](https://docs.astral.sh/uv/) and an [OpenRouter](https://openrouter.ai/keys) key.
@@ -155,6 +157,8 @@ flags win over them.
 | `YTEXPLAIN_MODEL` | default model, same values as `--model`; leave it out to be asked once |
 | `YTEXPLAIN_OUTPUT_DIR` | default output directory, same as `--out-dir` |
 | `YTEXPLAIN_CACHE_DIR` | where the cache lives (default `.cache`) |
+| `YTEXPLAIN_WEB_PASSWORD` | web UI only; a shared password. Unset means no password |
+| `YTEXPLAIN_WEB_MAX_JOBS_PER_HOUR` | web UI only; runs allowed per hour (default 10) |
 
 ### Reading the run summary
 
@@ -197,6 +201,43 @@ rm -rf .cache/completions    # keep transcripts, regenerate the writing
 Clear it when a video's captions have been corrected, or when you have changed prompts and
 want to compare output rather than reuse the old text.
 
+## Web UI
+
+There is a browser version: paste a URL, watch the progress, read the PDF in the page, and
+pick from earlier explainers. It runs the same pipeline as the CLI, so anything you generate
+in the terminal shows up in its history too.
+
+One video per run — playlists are rejected with a message rather than quietly costing twenty
+videos' worth of credit. Use the CLI for those.
+
+```bash
+uv sync --extra web                     # FastAPI and uvicorn
+cd web && npm install && npm run build  # the page
+cd .. && uv run uvicorn ytexplain.web.app:app --port 8000
+```
+
+Then open http://localhost:8000. That single process serves both the API and the page.
+
+While working on the frontend, run two processes instead, so edits reload instantly:
+
+```bash
+uv run uvicorn ytexplain.web.app:app --reload   # port 8000
+cd web && npm run dev                           # port 5173, proxies /api to 8000
+```
+
+Two environment variables matter here, both optional:
+
+```bash
+YTEXPLAIN_WEB_PASSWORD=something-long   # asks for it once per tab; unset means open
+YTEXPLAIN_WEB_MAX_JOBS_PER_HOUR=10      # a ceiling on what a shared password can spend
+```
+
+Before exposing this to the internet, know what it is and is not. The password is a single
+shared secret, the hourly limit is counted in memory and resets when the process restarts,
+and there is no hard spend cap — the limit bounds runs, not dollars. YouTube also blocks
+datacenter IP ranges, so caption fetches fail more often from a VPS than from your own
+machine.
+
 ### Moving or copying the project
 
 uv stores absolute paths inside `.venv`, so the environment breaks if the folder moves.
@@ -233,7 +274,8 @@ Nothing else is path-dependent: `.env`, `.cache/` and `out/` all move with the f
    keeps them from overlapping or repeating each other.
 5. **Render** to PDF: cover page, clickable table of contents, PDF bookmarks, styled
    code blocks, tables and callouts. The cover and each chapter state an estimated
-   reading time, so you can see up front what an hour of video became.
+   reading time, so you can see up front what an hour of video became. The file is written
+   to a temporary name and renamed into place, so an interrupted run leaves nothing behind.
 
 Transcripts and model responses are cached in `.cache/`, keyed by content, so re-running
 a video — to change PDF options, for instance — costs nothing.
@@ -268,7 +310,13 @@ processed.
 ```bash
 uv run pytest                          # unit tests, no network or API key needed
 uv run python scripts/render_sample.py # check PDF layout without spending anything
+cd web && npm run build && npm run lint # type-check and lint the page
 ```
+
+Output files are published atomically — written to a temporary sibling and renamed — so a
+run interrupted halfway never leaves a truncated PDF in `out/`. Each PDF gets a small
+`<slug>.json` beside it recording the video, model, cost and reading time; that is what the
+web UI's history list reads.
 
 ## License
 

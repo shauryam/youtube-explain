@@ -87,6 +87,12 @@ renderer, which is why `--combined` was nearly free to add.
 | `render/pdf.py` | styles, page template, document assembly | all visual design lives here |
 | `render/text.py` | Explainer back to Markdown | for `--markdown` |
 | `config.py` | settings from flags, then env, then defaults | |
+| `files.py` | atomic file publication | every writer of a final artefact goes through it |
+| `runs.py` | the JSON record written beside each PDF | the web UI's history comes from these |
+| `web/jobs.py` | job registry, serial worker, engine calls | never imports `cli.py` |
+| `web/app.py` | routes, access gate, static frontend | presentation, like `cli.py` |
+| `web/errors.py` | engine exception to a kind the page can act on | the only place that decides |
+| `web/` (frontend in `web/`) | Vite, React, TypeScript single page | built to `web/dist`, served by uvicorn |
 
 ## Stage detail and the reasoning behind it
 
@@ -250,6 +256,117 @@ see exactly what the model returned, and delete a namespace to rebuild just that
 There is no expiry or size limit. If a video's captions are corrected upstream, the stale
 transcript stays until `.cache/transcripts` is cleared.
 
+### Publishing files (`files.py`)
+
+`multiBuild` writes for several seconds. Writing straight to the destination meant a kill
+mid-render left a truncated PDF under the final name — indistinguishable, to anything
+listing `out/`, from a finished run. `atomic_path` writes to a hidden sibling and renames on
+success, so a reader sees either the previous file or the complete new one. `Cache.set` had
+its own copy of the pattern and now uses the helper.
+
+The writer creates the temporary file rather than `mkstemp`, which would make it mode 0600;
+`os.replace` preserves permissions, so generated PDFs would have ended up private to the
+process owner.
+
+### Run records (`runs.py`)
+
+Each PDF gets a `<slug>.json` beside it: URL, video, model, sections, words, reading time,
+cost, call counts, elapsed time, timestamp. Written by both `cli.py::_write` and the web
+worker, so a terminal run and a browser run populate the same history.
+
+`write_record` takes a *list* of documents, mirroring `build_pdf`, because a combined
+playlist is also one file: it sums sections and words and takes the collection's title and
+URL, since no single video in a book is the thing that was asked for.
+
+Cost is a delta measured either side of the build. `Usage` accumulates across a whole
+process, so recording the counter itself would credit every video in a playlist with the
+whole playlist's spend.
+
+`load_records` skips anything unreadable, malformed, or whose PDF has gone: a history list
+is not worth failing a page load over, and a half-deleted run should simply disappear from
+it.
+
+## The web UI (`web/`)
+
+```mermaid
+flowchart LR
+  UI[React page] -->|POST /api/jobs| API[FastAPI]
+  API --> Queue["ThreadPoolExecutor(max_workers=1)"]
+  Queue --> Worker[worker thread]
+  Worker -->|progress lines| Registry[JOBS dict]
+  UI -->|GET /api/jobs/id every 1s| Registry
+  Worker --> Engine[build_document + build_pdf]
+  Engine --> Disk[(out/slug.pdf + out/slug.json)]
+  UI -->|blob in an iframe| Pdf[GET /api/jobs/id/pdf]
+```
+
+The web layer calls `collect`, `make_client`, `build_document`, `output_path`, `build_pdf`
+and `write_record` — the same functions `cli.py` calls — and never imports `cli.py`. There is
+one pipeline, and no second implementation to drift.
+
+**Polling, not server-sent events.** A run emits roughly a dozen progress lines over a
+minute or two, so a one-second poll is indistinguishable from a push, and it avoids the
+parts of SSE that actually cost something: proxies that buffer the stream, idle timeouts
+that drop it, and reconnect logic that has to work out what was missed.
+
+**Job state is a dict, not a database.** The PDF, the markdown and the run record are on
+disk the moment a run ends, so a restart loses only the progress lines of a job still in
+flight. A schema would add a second source of truth about what `out/` contains in order to
+protect information that stops being interesting a second after the PDF appears. The dict is
+capped at 50 entries, evicting finished jobs oldest first, because the server is meant to
+stay up for weeks; a running job is never evicted, since nothing else knows it exists.
+
+**Runs are serial.** One worker thread means two submissions cannot race into the OpenRouter
+balance or get the machine rate-limited by YouTube, and it makes `queued` an honest status.
+A submission for a URL that already has a queued or running job returns that job rather than
+paying twice for one PDF.
+
+**Playlists are refused in the worker**, by checking `len(refs) != 1` after `collect`, so the
+rejection carries the real count instead of guessing from the URL shape.
+
+**The PDF is fetched as a blob.** An `<iframe src>` cannot carry the access-token header, and
+putting the token in a URL would leak it into browser history and server logs, so the page
+fetches the file with the header and hands the iframe an object URL.
+
+**Access control is one shared password**, compared with `secrets.compare_digest` and skipped
+entirely when `YTEXPLAIN_WEB_PASSWORD` is unset, so local development needs no setup.
+`/api/settings` stays open, because the page has to be able to ask whether a password is
+needed. The hourly cap is in memory beside the jobs: it bounds what a shared password can
+spend, not what a determined attacker can, and a restart clears it.
+
+### The error taxonomy (`web/errors.py`)
+
+Engine exceptions are written for a terminal — exact, detailed, and often carrying a slab of
+upstream response body. `classify` turns one into a `kind`, a sentence, and a `retryable`
+flag, so the page can offer the right next step without matching on prose:
+
+| `kind` | Cause | Retryable |
+| --- | --- | --- |
+| `invalid_url` | `SourceError` | no |
+| `playlist_unsupported` | `collect` returned several refs | no |
+| `no_captions` | `TranscriptError` — the commonest real failure | no |
+| `credits` / `auth_upstream` / `model_refused` | `FatalLLMError`, by status | no |
+| `rate_limited` | `UpstreamError` with 429 | yes |
+| `upstream` | `UpstreamError` otherwise: unreachable or 5xx | yes |
+| `model_output` | plain `LLMError`: truncated, empty, unparseable | yes |
+| `config` | `ConfigError`; a 503 on submit, not a job failure | no |
+| `output` | `OSError` writing the PDF | yes |
+| `unknown` | anything else | yes |
+
+The split between `LLMError`, `UpstreamError` and `FatalLLMError` exists so this mapping is
+by type rather than by parsing an error message. Retrying is genuinely cheap, which is why
+several kinds are marked retryable: completed model calls replay from the cache, so a rerun
+only redoes the step that broke.
+
+**Upstream text never reaches the browser.** The worker logs the traceback and the response
+body against the job id, and the page gets only the mapped sentence — those screenshots get
+shared. The worker wraps its whole body for the same reason: an exception escaping into an
+executor thread is swallowed by a future nobody awaits, leaving a job stuck at `running`.
+
+Accepted limitation: SIGTERM kills an in-flight job with no chance to mark it failed. The
+UI's lost-job path covers it — a 404 while polling is reported as a restart, with an offer to
+run it again.
+
 ## How do I…
 
 **Add a CLI flag** — add it in `cli.py::parse_args`; if any stage below the CLI needs it,
@@ -278,6 +395,13 @@ reimplement `OpenRouterClient.complete` and `complete_json`; they are the only i
 **Process a source other than YouTube** — produce a `VideoMeta` and a `Transcript`, then
 call `build_explainer`. The generation and rendering stages have no YouTube knowledge.
 
+**Add a web route** — put it in `web/app.py` with the `require_access` dependency, and keep
+engine work in `web/jobs.py`. If it can fail in a new way, add the mapping to
+`web/errors.py` rather than composing a message in the route.
+
+**Change what the page shows about a run** — the fields come from `RunRecord`, so add it
+there and it appears in both the job payload and the history list.
+
 ## Constraints and gotchas
 
 These were all found the hard way; changing the related code without knowing them will
@@ -304,8 +428,14 @@ reintroduce the bug.
 ## Testing
 
 `uv run pytest` covers URL parsing, the Markdown renderer, language rule selection,
-timestamp coercion and JSON leniency. It needs no network and no API key, so it is safe to
-run in a loop while editing.
+timestamp coercion, JSON leniency, retry behaviour, atomic writes, run records, and the web
+layer end to end with fakes for the pipeline. It needs no network and no API key, so it is
+safe to run in a loop while editing. The web tests redirect `config.dotenv_path` at a
+non-existent file, so a developer's own `.env` — with a live key and their real `out/` —
+cannot change what they see.
+
+The `web` extra is in the dev dependency group as well as being optional for users, so the
+web tests run without anyone remembering `--extra web`.
 
 `uv run python scripts/render_sample.py` renders a synthetic document exercising every
 Markdown feature, both single and multi-chapter. Use it for any layout change.
@@ -333,3 +463,22 @@ pattern is the same whatever the model.
 Cost scales with section count rather than video length, since each expansion call sees only
 its own slice. Wall time is dominated by the slowest section, not their sum, because of the
 thread pool.
+
+## Deliberate non-goals, for now
+
+Each of these is a reasonable next step, not an oversight:
+
+- **SQLite or Postgres for history.** The JSON sidecars answer "what have I made" but cannot
+  answer "what did I spend in July" without reading every file. Queries are the trigger.
+- **Durable rate limiting and real accounts.** Both the hourly counter and the single shared
+  password live in memory and in an environment variable. Multi-user means a store.
+- **A hard spend cap.** The hourly job limit bounds runs, not dollars; a hard cap needs the
+  OpenRouter balance polled and a decision about what to do when it runs low.
+- **Server-sent events.** Worth it only if progress becomes fine-grained enough that a
+  one-second poll feels laggy.
+- **Playlists and `--combined` in the UI.** The engine and the record format already handle
+  them; what is missing is a queue the user can watch and a cost confirmation before
+  spending twenty videos' worth of credit.
+- **Cancelling a running job.** Needs cooperative cancellation inside the expansion pool.
+- **A residential proxy for caption fetches.** YouTube blocks datacenter IPs, so hosting this
+  anywhere but a home machine will hit caption failures the local runs never see.

@@ -4,9 +4,9 @@ If a `CodingAgents.md` sits in the parent directory, follow its shared rules too
 stands on its own without it.
 
 ytexplain turns YouTube videos and playlists into PDF explainers that replace watching.
-Read `docs/ARCHITECTURE.md` before changing anything — it explains the two-pass generation
-design, what each module owns, and several non-obvious constraints that are easy to
-reintroduce as bugs.
+There is a CLI and a web UI over the same engine. Read `docs/ARCHITECTURE.md` before changing
+anything — it explains the two-pass generation design, what each module owns, and several
+non-obvious constraints that are easy to reintroduce as bugs.
 
 ## Conventions
 
@@ -20,6 +20,13 @@ reintroduce as bugs.
 - **Anything both renderers need lives in `models.py`.** The reading-time estimate is there
   for that reason; deriving it separately in `render/pdf.py` and `render/text.py` would let
   the two disagree.
+- **Presentation lives at the edges: `cli.py` and `web/`.** Nothing below them prints,
+  formats for a person, or decides what an error should say to one. New failure wording for
+  the browser goes in `web/errors.py`, not into the route that raised it.
+- **The web layer uses the engine's functions and never imports `cli.py`.** If both entry
+  points need something, it belongs in `pipeline.py`, `runs.py` or `files.py`.
+- **Final artefacts are published through `files.py`.** Never write a PDF, markdown file or
+  cache entry directly to its destination.
 - Comments explain constraints and reasoning, not what the next line does.
 
 ## Before finishing a change
@@ -27,6 +34,7 @@ reintroduce as bugs.
 ```bash
 uv run pytest                          # no network or API key needed
 uv run python scripts/render_sample.py # only if you touched rendering
+cd web && npm run build && npm run lint # only if you touched the frontend
 ```
 
 `.env` holds the OpenRouter key and is gitignored — never commit it or echo its contents.
