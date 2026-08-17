@@ -7,6 +7,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .files import write_atomic_text
+
 
 class Cache:
     def __init__(self, root: Path, enabled: bool = True) -> None:
@@ -35,8 +37,6 @@ class Cache:
     def set(self, namespace: str, key: str, value: Any) -> None:
         if not self.enabled:
             return
-        path = self._path(namespace, key)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(value, ensure_ascii=False), encoding="utf-8")
-        tmp.replace(path)
+        write_atomic_text(
+            self._path(namespace, key), json.dumps(value, ensure_ascii=False)
+        )

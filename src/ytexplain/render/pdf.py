@@ -27,6 +27,7 @@ from reportlab.platypus import (
 )
 from reportlab.platypus.tableofcontents import TableOfContents
 
+from ..files import atomic_path
 from ..models import Document, Transcript, format_reading_time, format_timestamp
 from .markdown import MarkdownRenderer, escape, inline
 
@@ -295,9 +296,9 @@ def build_pdf(
     for position, document in enumerate(documents):
         story += _chapter(document, renderer, styles, position, multi, include_transcript)
 
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    doc = NotesDocTemplate(out_path, doc_title=title, footer=footer)
-    doc.multiBuild(story)
+    with atomic_path(out_path) as temp:
+        doc = NotesDocTemplate(temp, doc_title=title, footer=footer)
+        doc.multiBuild(story)
     return out_path
 
 

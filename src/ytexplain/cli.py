@@ -12,6 +12,7 @@ from rich.table import Table
 
 from .cache import Cache
 from .config import DEFAULT_MODEL, ConfigError, Settings
+from .files import write_atomic_text
 from .llm import LLMError, Model, list_models
 from .models import Document
 from .pipeline import (
@@ -244,8 +245,7 @@ def _write(document: Document, destination: Path, args) -> Path:
     path = build_pdf([document], destination, include_transcript=args.include_transcript)
     console.print(f"  [green]wrote[/] {path}")
     if args.markdown:
-        markdown_path = path.with_suffix(".md")
-        markdown_path.write_text(to_markdown(document), encoding="utf-8")
+        markdown_path = write_atomic_text(path.with_suffix(".md"), to_markdown(document))
         console.print(f"  [green]wrote[/] {markdown_path}")
     return path
 
