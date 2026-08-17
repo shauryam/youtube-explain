@@ -36,6 +36,9 @@ requires = ["uv_build>=0.11.14,<0.12.0"]
 build-backend = "uv_build"
 
 [dependency-groups]
+# The web extra is optional for users but not for the suite: `uv run pytest` has
+# to exercise the web layer without anyone remembering to pass --extra web.
 dev = [
     "pytest>=9.1.1",
+    "ytexplain[web]",
 ]

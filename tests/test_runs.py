@@ -1,28 +1,7 @@
 import json
 from types import SimpleNamespace
 
-from ytexplain.models import Document, Explainer, Section, Transcript, VideoMeta
 from ytexplain.runs import UsageDelta, load_records, record_path, write_record
-
-
-def document(video_id="abc123", title="A video", words=400, sections=2, channel="A channel"):
-    body = " ".join(["word"] * (words // max(1, sections)))
-    return Document(
-        meta=VideoMeta(
-            video_id=video_id,
-            url=f"https://www.youtube.com/watch?v={video_id}",
-            title=title,
-            channel=channel,
-        ),
-        explainer=Explainer(
-            title=title,
-            model="z-ai/glm-5.2",
-            sections=[Section(heading=f"Part {n}", body=body) for n in range(sections)],
-        ),
-        transcript=Transcript(
-            segments=[], language_code="en", is_generated=False, source="test"
-        ),
-    )
 
 
 def usage(cost=0.0, calls=0, cached=0):
@@ -34,12 +13,12 @@ def test_usage_delta_measures_one_document_out_of_running_totals():
     assert (delta.cost_usd, delta.calls, delta.cached_calls) == (0.03, 7, 2)
 
 
-def test_write_record_lands_beside_the_pdf(tmp_path):
+def test_write_record_lands_beside_the_pdf(tmp_path, make_document):
     pdf = tmp_path / "a-video.pdf"
     pdf.write_bytes(b"%PDF-1.4")
 
     record = write_record(
-        [document()], pdf, usage=UsageDelta(cost_usd=0.02, calls=7), seconds=84.42
+        [make_document()], pdf, usage=UsageDelta(cost_usd=0.02, calls=7), seconds=84.42
     )
 
     assert record.title == "A video"
@@ -54,12 +33,12 @@ def test_write_record_lands_beside_the_pdf(tmp_path):
     assert payload["generated_at"].endswith("+00:00")
 
 
-def test_write_record_for_a_combined_book_covers_every_video(tmp_path):
+def test_write_record_for_a_combined_book_covers_every_video(tmp_path, make_document):
     pdf = tmp_path / "playlist.pdf"
     pdf.write_bytes(b"%PDF-1.4")
 
     write_record(
-        [document(video_id="one"), document(video_id="two")],
+        [make_document(video_id="one"), make_document(video_id="two")],
         pdf,
         usage=UsageDelta(cost_usd=0.1, calls=14),
         seconds=200,
@@ -75,13 +54,16 @@ def test_write_record_for_a_combined_book_covers_every_video(tmp_path):
     assert (payload["video_id"], payload["channel"]) == ("", None)
 
 
-def test_load_records_returns_newest_first_with_its_pdf(tmp_path):
-    for name, video in (("old", "v1"), ("new", "v2")):
+def test_load_records_returns_newest_first_with_its_pdf(tmp_path, make_document):
+    for name, video, when in (
+        ("old", "v1", "2026-01-01T00:00:00+00:00"),
+        ("new", "v2", "2026-06-01T00:00:00+00:00"),
+    ):
         pdf = tmp_path / f"{name}.pdf"
         pdf.write_bytes(b"%PDF-1.4")
-        write_record([document(video_id=video)], pdf, usage=UsageDelta(), seconds=1)
+        write_record([make_document(video_id=video)], pdf, usage=UsageDelta(), seconds=1)
         payload = json.loads(record_path(pdf).read_text(encoding="utf-8"))
-        payload["generated_at"] = "2026-01-01T00:00:00+00:00" if name == "old" else "2026-06-01T00:00:00+00:00"
+        payload["generated_at"] = when
         record_path(pdf).write_text(json.dumps(payload), encoding="utf-8")
 
     found = load_records(tmp_path)
@@ -89,12 +71,12 @@ def test_load_records_returns_newest_first_with_its_pdf(tmp_path):
     assert [path.name for _, path in found] == ["new.pdf", "old.pdf"]
 
 
-def test_load_records_finds_playlist_subfolders(tmp_path):
+def test_load_records_finds_playlist_subfolders(tmp_path, make_document):
     folder = tmp_path / "a-playlist"
     folder.mkdir()
     pdf = folder / "01-first.pdf"
     pdf.write_bytes(b"%PDF-1.4")
-    write_record([document()], pdf, usage=UsageDelta(), seconds=1)
+    write_record([make_document()], pdf, usage=UsageDelta(), seconds=1)
 
     found = load_records(tmp_path)
     assert [path.relative_to(tmp_path).as_posix() for _, path in found] == [
@@ -102,10 +84,10 @@ def test_load_records_finds_playlist_subfolders(tmp_path):
     ]
 
 
-def test_load_records_skips_orphans_and_junk(tmp_path):
+def test_load_records_skips_orphans_and_junk(tmp_path, make_document):
     orphan = tmp_path / "deleted.pdf"
     orphan.write_bytes(b"%PDF-1.4")
-    write_record([document()], orphan, usage=UsageDelta(), seconds=1)
+    write_record([make_document()], orphan, usage=UsageDelta(), seconds=1)
     orphan.unlink()  # PDF cleared out, record left behind
 
     (tmp_path / "not-a-record.json").write_text("{ this is not json", encoding="utf-8")

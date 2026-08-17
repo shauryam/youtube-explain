@@ -52,7 +52,9 @@ def test_cache_writes_survive_a_reread(tmp_path):
     assert temp_leftovers(tmp_path / "completions") == []
 
 
-def test_failed_pdf_render_leaves_nothing_at_the_destination(tmp_path, monkeypatch):
+def test_failed_pdf_render_leaves_nothing_at_the_destination(
+    tmp_path, monkeypatch, make_document
+):
     class ExplodingTemplate:
         def __init__(self, *args, **kwargs):
             pass
@@ -64,17 +66,7 @@ def test_failed_pdf_render_leaves_nothing_at_the_destination(tmp_path, monkeypat
     destination = tmp_path / "explainer.pdf"
 
     with pytest.raises(RuntimeError):
-        render.build_pdf([render_document()], destination)
+        render.build_pdf([make_document()], destination)
 
     assert not destination.exists()
     assert temp_leftovers(tmp_path) == []
-
-
-def render_document():
-    from ytexplain.models import Document, Explainer, Section, Transcript, VideoMeta
-
-    return Document(
-        meta=VideoMeta(video_id="v", url="https://example.com/v", title="A video"),
-        explainer=Explainer(title="A video", sections=[Section(heading="One", body="Body")]),
-        transcript=Transcript(segments=[], language_code="en", is_generated=False, source="test"),
-    )
