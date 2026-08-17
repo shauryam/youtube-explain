@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
+from dataclasses import replace
 from pathlib import Path
 
 from rich.console import Console
@@ -25,6 +27,7 @@ from .pipeline import (
 )
 from .render import build_pdf
 from .render.text import to_markdown
+from .runs import UsageDelta, write_record
 
 console = Console()
 
@@ -178,11 +181,17 @@ def main(argv: list[str] | None = None) -> int:
                 )
             folder = _folder_for(settings, playlist_title, args)
             documents: list[Document] = []
+            # A combined book is one file made of every video, so its record
+            # covers the whole URL rather than any single video in it.
+            collection_started = time.perf_counter()
+            collection_usage = replace(client.usage)
 
             for position, ref in enumerate(refs, start=1):
                 label = ref.title or ref.video_id
                 prefix = f"[{position}/{len(refs)}] " if len(refs) > 1 else ""
                 console.print(f"{prefix}[bold cyan]{label}[/]")
+                started = time.perf_counter()
+                usage_before = replace(client.usage)
                 try:
                     document = _run_one(ref, client, cache, options, playlist_title)
                 except Exception as exc:  # noqa: BLE001 - one bad video must not stop a playlist
@@ -203,7 +212,14 @@ def main(argv: list[str] | None = None) -> int:
                         folder=folder,
                         index=position if len(refs) > 1 else None,
                     )
-                    results.append((_write(document, destination, args), document))
+                    written = _write(
+                        [document],
+                        destination,
+                        args,
+                        usage=UsageDelta.between(usage_before, client.usage),
+                        seconds=time.perf_counter() - started,
+                    )
+                    results.append((written, document))
 
             if args.combined and len(refs) > 1 and documents:
                 destination = sole_output or (
@@ -216,6 +232,14 @@ def main(argv: list[str] | None = None) -> int:
                     collection_title=playlist_title,
                 )
                 console.print(f"  [green]wrote[/] {path}")
+                write_record(
+                    documents,
+                    path,
+                    usage=UsageDelta.between(collection_usage, client.usage),
+                    seconds=time.perf_counter() - collection_started,
+                    title=playlist_title,
+                    url=url,
+                )
                 results.append((path, documents[0]))
 
     _summarise(results, failures, client_usage=client.usage)
@@ -241,12 +265,25 @@ def _folder_for(settings: Settings, playlist_title: str | None, args) -> Path:
     return settings.output_dir
 
 
-def _write(document: Document, destination: Path, args) -> Path:
-    path = build_pdf([document], destination, include_transcript=args.include_transcript)
+def _write(
+    documents: list[Document],
+    destination: Path,
+    args,
+    *,
+    usage: UsageDelta,
+    seconds: float,
+) -> Path:
+    path = build_pdf(documents, destination, include_transcript=args.include_transcript)
     console.print(f"  [green]wrote[/] {path}")
+    markdown_path = None
     if args.markdown:
-        markdown_path = write_atomic_text(path.with_suffix(".md"), to_markdown(document))
+        markdown_path = write_atomic_text(
+            path.with_suffix(".md"), to_markdown(documents[0])
+        )
         console.print(f"  [green]wrote[/] {markdown_path}")
+    write_record(
+        documents, path, usage=usage, seconds=seconds, markdown_path=markdown_path
+    )
     return path
 
 
