@@ -28,6 +28,12 @@ class Options:
     max_videos: int | None = None
 
 
+def parse_languages(text: str) -> tuple[str, ...]:
+    """Turn a comma-separated language list into a preference ladder."""
+    languages = tuple(part.strip() for part in text.split(",") if part.strip())
+    return languages or PREFERRED
+
+
 def slugify(text: str, limit: int = 70) -> str:
     slug = SLUG_STRIP.sub("-", text.lower()).strip("-")
     return slug[:limit].rstrip("-") or "untitled"

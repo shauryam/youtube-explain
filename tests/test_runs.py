@@ -38,12 +38,13 @@ def test_write_record_lands_beside_the_pdf(tmp_path):
     pdf = tmp_path / "a-video.pdf"
     pdf.write_bytes(b"%PDF-1.4")
 
-    written = write_record(
+    record = write_record(
         [document()], pdf, usage=UsageDelta(cost_usd=0.02, calls=7), seconds=84.42
     )
 
-    assert written == record_path(pdf) == tmp_path / "a-video.json"
-    payload = json.loads(written.read_text(encoding="utf-8"))
+    assert record.title == "A video"
+    assert record_path(pdf) == tmp_path / "a-video.json"
+    payload = json.loads(record_path(pdf).read_text(encoding="utf-8"))
     assert payload["pdf"] == "a-video.pdf"  # filename only, so the pair can move together
     assert payload["url"] == "https://www.youtube.com/watch?v=abc123"
     assert payload["model"] == "z-ai/glm-5.2"

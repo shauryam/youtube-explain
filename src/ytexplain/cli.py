@@ -23,6 +23,7 @@ from .pipeline import (
     collect,
     make_client,
     output_path,
+    parse_languages,
     slugify,
 )
 from .render import build_pdf
@@ -155,7 +156,7 @@ def main(argv: list[str] | None = None) -> int:
     options = Options(
         fast=args.fast,
         concurrency=max(1, args.concurrency),
-        languages=tuple(part.strip() for part in args.lang.split(",") if part.strip()) or ("en",),
+        languages=parse_languages(args.lang),
         force_playlist=args.playlist,
         max_videos=args.max_videos,
     )

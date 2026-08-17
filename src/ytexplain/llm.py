@@ -21,7 +21,22 @@ PER_MILLION = 1_000_000
 
 
 class LLMError(RuntimeError):
-    pass
+    """Anything that stopped a completion from being usable.
+
+    A plain `LLMError` means the request reached the model and the answer was not
+    usable: truncated, empty, or unparseable JSON. The subclasses below cover the
+    transport instead, and the split is by type rather than by message so callers
+    can react without reading English prose. `status` is the HTTP status when one
+    was involved.
+    """
+
+    def __init__(self, message: str, status: int | None = None) -> None:
+        super().__init__(message)
+        self.status = status
+
+
+class UpstreamError(LLMError):
+    """OpenRouter was unreachable, overloaded, or throttling. Worth retrying."""
 
 
 class FatalLLMError(LLMError):
@@ -31,10 +46,6 @@ class FatalLLMError(LLMError):
     same message, which is invisible in a terminal but reads as a hang behind a
     progress bar.
     """
-
-    def __init__(self, message: str, status: int) -> None:
-        super().__init__(message)
-        self.status = status
 
 
 @dataclass(slots=True)
@@ -204,7 +215,10 @@ class OpenRouterClient:
             try:
                 response = self._client.post(OPENROUTER_ENDPOINT, json=body)
                 if response.status_code in RETRY_STATUS:
-                    raise LLMError(f"HTTP {response.status_code}: {response.text[:300]}")
+                    raise UpstreamError(
+                        f"HTTP {response.status_code}: {response.text[:300]}",
+                        response.status_code,
+                    )
                 if response.status_code >= 400:
                     raise FatalLLMError(
                         f"HTTP {response.status_code}: {response.text[:500]}",
@@ -218,7 +232,10 @@ class OpenRouterClient:
                 if attempt == self.max_retries:
                     break
                 time.sleep(min(2**attempt + random.uniform(0, 0.75), 30))
-        raise LLMError(f"OpenRouter request failed after {self.max_retries + 1} attempts: {last_error}")
+        raise UpstreamError(
+            f"OpenRouter request failed after {self.max_retries + 1} attempts: {last_error}",
+            getattr(last_error, "status", None),
+        )
 
     @staticmethod
     def _extract_text(payload: dict) -> tuple[str, str]:

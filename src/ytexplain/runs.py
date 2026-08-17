@@ -71,11 +71,14 @@ def write_record(
     title: str | None = None,
     url: str | None = None,
     markdown_path: Path | None = None,
-) -> Path:
+) -> RunRecord:
     """Describe one PDF. Takes a list because a combined playlist is one file too.
 
     `title` and `url` are overridden for a combined book, where the collection is
     what the reader asked for rather than any single video in it.
+
+    Returns the record so a caller that has just generated one does not have to
+    read it back; `record_path` says where it went.
     """
     pdf_path = Path(pdf_path)
     first = documents[0]
@@ -101,7 +104,8 @@ def write_record(
         channel=first.meta.channel if single else None,
         markdown=markdown_path.name if markdown_path else None,
     )
-    return write_atomic_text(record_path(pdf_path), json.dumps(asdict(record), indent=2))
+    write_atomic_text(record_path(pdf_path), json.dumps(asdict(record), indent=2))
+    return record
 
 
 def load_records(out_dir: Path) -> list[tuple[RunRecord, Path]]:
